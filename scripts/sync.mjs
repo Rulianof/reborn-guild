@@ -15,7 +15,9 @@ if (existsSync(envFile)) {
     if (m && !process.env[m[1]]) process.env[m[1]] = m[2];
   }
 }
-const { BLIZZARD_CLIENT_ID, BLIZZARD_CLIENT_SECRET } = process.env;
+// trim() : un espace ou retour à la ligne collé avec le secret fait échouer l'authentification.
+const BLIZZARD_CLIENT_ID = process.env.BLIZZARD_CLIENT_ID?.trim();
+const BLIZZARD_CLIENT_SECRET = process.env.BLIZZARD_CLIENT_SECRET?.trim();
 if (!BLIZZARD_CLIENT_ID || !BLIZZARD_CLIENT_SECRET) {
   console.error('BLIZZARD_CLIENT_ID / BLIZZARD_CLIENT_SECRET manquants (.env ou secrets GitHub).');
   process.exit(1);
