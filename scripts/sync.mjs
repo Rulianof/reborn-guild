@@ -146,27 +146,61 @@ async function fetchCharacter(m, summary) {
   };
 }
 
-// Regroupe les persos d'un même compte. Les hauts faits sont partagés par compte (bataillon),
-// donc des points identiques désignent presque toujours le même joueur.
+// Regroupe les persos d'un même compte.
+// 1. Empreinte des mascottes (nombre + identifiants) : la collection est commune à tout le compte.
+// 2. En secours, pour les persos sans mascottes visibles : points de hauts faits identiques, ou très proches
+//    avec un nom qui commence pareil (accents ignorés), ex. Rulian / Rulîan / Ruliañ.
+// Deux groupes aux empreintes de mascottes différentes ne sont jamais fusionnés automatiquement.
 // config.comptes : { "reroll": "main" } rattache à la main ; config.mains : force le main d'un groupe.
-function groupAccounts(rosterMembers, summaries, characters) {
+function groupAccounts(rosterMembers, summaries, petPrints, characters) {
   const key = (name) => name.toLowerCase();
   const parent = new Map();
+  const groupPrint = new Map();
   const find = (x) => (parent.get(x) === x ? x : (parent.set(x, find(parent.get(x))), parent.get(x)));
-  const union = (a, b) => { if (parent.has(a) && parent.has(b)) parent.set(find(a), find(b)); };
+  const union = (a, b, force = false) => {
+    if (!parent.has(a) || !parent.has(b)) return;
+    const ra = find(a), rb = find(b);
+    if (ra === rb) return;
+    const pa = groupPrint.get(ra), pb = groupPrint.get(rb);
+    if (!force && pa && pb && pa !== pb) return;
+    parent.set(ra, rb);
+    if (!pb && pa) groupPrint.set(rb, pa);
+  };
 
   const all = rosterMembers.map((m, i) => ({
     id: key(m.character.name), name: m.character.name, realm: m.character.realm.slug,
-    level: m.character.level, classId: m.character.playable_class.id, points: summaries[i]?.achievement_points ?? 0,
+    level: m.character.level, classId: m.character.playable_class.id,
+    points: summaries[i]?.achievement_points ?? 0, pets: petPrints[i],
   }));
-  for (const c of all) parent.set(c.id, c.id);
+  for (const c of all) {
+    parent.set(c.id, c.id);
+    if (c.pets) groupPrint.set(c.id, c.pets);
+  }
+
+  const byPets = new Map();
+  for (const c of all) {
+    if (!c.pets) continue;
+    if (byPets.has(c.pets)) union(c.id, byPets.get(c.pets));
+    else byPets.set(c.pets, c.id);
+  }
+
   const byPoints = new Map();
   for (const c of all) {
     if (!c.points) continue;
     if (byPoints.has(c.points)) union(c.id, byPoints.get(c.points));
     else byPoints.set(c.points, c.id);
   }
-  for (const [alt, main] of Object.entries(config.comptes || {})) union(key(alt), key(main));
+  const plain = (n) => n.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+  const prefix = (a, b) => { let i = 0; while (i < a.length && a[i] === b[i]) i++; return i; };
+  const withPoints = all.filter((c) => c.points);
+  for (let i = 0; i < withPoints.length; i++) {
+    for (let j = i + 1; j < withPoints.length; j++) {
+      const a = withPoints[i], b = withPoints[j];
+      const close = Math.abs(a.points - b.points) <= Math.max(500, 0.02 * Math.max(a.points, b.points));
+      if (close && prefix(plain(a.name), plain(b.name)) >= 4) union(a.id, b.id);
+    }
+  }
+  for (const [alt, main] of Object.entries(config.comptes || {})) union(key(alt), key(main), true);
 
   const groups = new Map();
   for (const c of all) {
@@ -202,6 +236,12 @@ async function main() {
 
   console.log(`${roster.members.length} membres → profils…`);
   const summaries = await pool(roster.members, 10, (m) => api(charPath(m)));
+  // Empreinte du compte : nombre de mascottes + somme de leurs identifiants.
+  const petPrints = await pool(roster.members, 10, async (m, i) => {
+    if (!summaries[i]) return null;
+    const pets = (await api(`${charPath(m)}/collections/pets`))?.pets;
+    return pets?.length ? `${pets.length}:${pets.reduce((s, p) => s + (p.id || 0), 0)}` : null;
+  });
 
   const members = roster.members.map((m, i) => [m, summaries[i]]).filter(([m]) => m.character.level >= config.niveauMin);
   console.log(`${members.length} au niveau ${config.niveauMin}+ → détails…`);
@@ -239,7 +279,7 @@ async function main() {
     generatedAt: new Date().toISOString(), status: wcl.status, nights: wcl.nights || [],
   }));
 
-  const accounts = groupAccounts(roster.members, summaries, characters);
+  const accounts = groupAccounts(roster.members, summaries, petPrints, characters);
   console.log(`${accounts} comptes détectés pour ${characters.length} persos.`);
 
   // Statistiques d'enchantement par emplacement : utile pour valider config.slotsEnchantables.
