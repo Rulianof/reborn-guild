@@ -82,7 +82,7 @@ td.num { font-variant-numeric: tabular-nums; font-weight: 600; }
 .card li:last-child { border: 0; }
 .card li a { text-decoration: none; }
 .card li a:hover { text-decoration: underline; }
-.alert-card .missing { color: var(--bad); font-size: 13px; }
+.alert-card .missing { color: #e8806f; font-size: 13px; }
 .alert-card .sockets { color: var(--warn); font-size: 13px; }
 
 /* Fiche perso */

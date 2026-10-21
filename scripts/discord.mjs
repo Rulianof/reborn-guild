@@ -1,4 +1,4 @@
-// Poste sur Discord le rappel des enchants et gemmes manquants (mains actifs uniquement).
+// Poste sur Discord un rappel amical avec un lien vers la page des enchants et gemmes manquants.
 // Usage : node scripts/discord.mjs [--force] [--dry-run] [--check]
 //   --check   : dit seulement si c'est l'heure du rappel (écrit send=true/false pour GitHub Actions)
 //   --force   : ignore le jour et l'heure configurés
@@ -33,39 +33,21 @@ if (!args.has('--force') && !isReminderTime().ok) {
 const data = JSON.parse(readFileSync(join(ROOT, 'site/data/guild.json'), 'utf8'));
 const DAY = 86400000;
 const isActive = (c) => c.lastLogin && Date.now() - c.lastLogin < config.joursInactif * DAY;
-const groupSlots = (list) => Object.entries(list.reduce((m, s) => ((m[s] = (m[s] || 0) + 1), m), {})).map(([s, n]) => (n > 1 ? `${s} ×${n}` : s));
-const issues = (c) => c.missingEnchants.length + c.emptySockets.length;
+const count = data.characters.filter((c) => c.found && c.isMain !== false && isActive(c) && c.missingEnchants.length + c.emptySockets.length).length;
 
-const list = data.characters
-  .filter((c) => c.found && c.isMain !== false && isActive(c) && issues(c))
-  .sort((a, b) => issues(b) - issues(a) || b.ilvl - a.ilvl);
-
-const lines = list.map((c) => {
-  const parts = [];
-  if (c.missingEnchants.length) parts.push(`✖ ${c.missingEnchants.join(', ')}`);
-  if (c.emptySockets.length) parts.push(`◇ ${groupSlots(c.emptySockets).join(', ')}`);
-  return `**${c.name}** — ${parts.join(' · ')}`;
-});
-
-// Une description d'embed est limitée à 4096 caractères : on découpe si besoin.
-const chunks = [];
-for (const line of lines) {
-  if (!chunks.length || chunks.at(-1).length + line.length + 1 > 3800) chunks.push('');
-  chunks[chunks.length - 1] += (chunks.at(-1) ? '\n' : '') + line;
-}
-
+// Message volontairement léger : un lien vers la page, sans lister personne publiquement.
 const alertsUrl = `${config.siteUrl}#/alertes`;
-const messages = list.length
-  ? chunks.map((desc, i) => ({
-      embeds: [{
-        title: i === 0 ? `🔮 Rappel enchants & gemmes — ${list.length} à corriger avant le raid` : '🔮 Rappel (suite)',
-        url: alertsUrl,
-        color: 0xd9b45a,
-        description: desc + (i === chunks.length - 1 ? '\n\n✖ enchant manquant · ◇ châsse vide\n*Pensez à vous déconnecter après avoir corrigé, l\'armurerie se met à jour au logout.*' : ''),
-        footer: i === chunks.length - 1 ? { text: 'Armurerie Rebõrn' } : undefined,
-      }],
-    }))
-  : [{ embeds: [{ title: '✨ Tout le monde est enchanté et gemmé !', url: alertsUrl, color: 0x4fbf72, description: 'Rien à signaler avant le raid. Incroyable.' }] }];
+const messages = [{
+  embeds: [{
+    title: '✨ Petit check avant le raid !',
+    url: alertsUrl,
+    color: count ? 0xd9b45a : 0x4fbf72,
+    description: count
+      ? `Un enchant ou une gemme a peut-être filé entre les doigts ? 👀\n**[Clique ici pour vérifier ton perso](${alertsUrl})**\n\n*Astuce : déconnecte-toi après avoir corrigé, l'armurerie se met à jour au logout.*`
+      : 'Tout le monde est enchanté et gemmé. Bravo à tous, bon raid ! 🎉',
+    footer: { text: 'Armurerie Rebõrn' },
+  }],
+}];
 
 if (args.has('--dry-run')) {
   console.log(JSON.stringify(messages, null, 2));
@@ -88,4 +70,4 @@ for (const msg of messages) {
     process.exit(1);
   }
 }
-console.log(`Rappel envoyé sur Discord (${list.length} persos, ${messages.length} message${messages.length > 1 ? 's' : ''}).`);
+console.log(`Rappel envoyé sur Discord (${count} persos à vérifier).`);

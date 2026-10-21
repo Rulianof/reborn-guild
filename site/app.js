@@ -129,30 +129,28 @@ function renderMembres() {
 
 // ---------- Alertes ----------
 function renderAlertes() {
-  const list = visibleChars().filter((c) => c.found && issues(c)).sort((a, b) => issues(b) - issues(a) || b.ilvl - a.ilvl);
+  const list = visibleChars().filter((c) => c.found && issues(c)).sort((a, b) => b.ilvl - a.ilvl);
   $app.innerHTML = `
     <div class="toolbar">
-      <span class="muted">${list.length} perso${list.length > 1 ? 's' : ''} avec un enchantement ou une gemme manquante${state.inactifs ? '' : ' (actifs uniquement)'}${state.mainsOnly ? ', mains uniquement' : ''}.</span>
+      <div><h2 class="section-title" style="margin:0">Petit check avant le raid</h2>
+      <span class="muted">${list.length ? `${list.length} perso${list.length > 1 ? 's' : ''} avec un enchant ou une gemme qui manque, du plus haut ilvl au plus bas.` : ''}</span></div>
       <span style="flex:1"></span>
       ${filters()}
       <button class="btn gold" id="copy">Copier pour Discord</button>
     </div>
-    <p class="small">⚠ L'armurerie Blizzard ne se met à jour qu'à la déconnexion : un enchant posé en jeu apparaît après un relog et la prochaine synchro.</p>
+    <p class="small">Tu as corrigé ? Déconnecte-toi une fois : l'armurerie Blizzard ne se met à jour qu'au logout, et le site se rafraîchit toutes les 3 heures.</p>
     <div class="grid">${list.map((c) => `
       <a class="card alert-card" href="${charUrl(c)}" style="text-decoration:none">
         <h3>${charCell(c)}<small>${c.ilvl} ilvl</small></h3>
-        ${c.missingEnchants.length ? `<div class="missing">Sans enchant : ${c.missingEnchants.map(esc).join(', ')}</div>` : ''}
-        ${c.emptySockets.length ? `<div class="sockets">Châsse vide : ${groupSlots(c.emptySockets).map(esc).join(', ')}</div>` : ''}
-      </a>`).join('') || '<p class="muted">Tout le monde est enchanté. Incroyable.</p>'}
+        ${c.missingEnchants.length ? `<div class="missing">Enchant à poser : ${c.missingEnchants.map(esc).join(', ')}</div>` : ''}
+        ${c.emptySockets.length ? `<div class="sockets">Gemme à sertir : ${groupSlots(c.emptySockets).map(esc).join(', ')}</div>` : ''}
+      </a>`).join('') || '<p class="muted">Tout le monde est enchanté et gemmé. Bon raid ! 🎉</p>'}
     </div>`;
   bindFilters(renderAlertes);
   $app.querySelector('#copy').onclick = async (e) => {
-    const lines = list.map((c) => `• **${c.name}** — ${[
-      c.missingEnchants.length && `enchant : ${c.missingEnchants.join(', ')}`,
-      c.emptySockets.length && `gemme : ${groupSlots(c.emptySockets).join(', ')}`,
-    ].filter(Boolean).join(' | ')}`);
-    const text = `🔮 **Rappel enchants & gemmes** (${list.length})\n${lines.join('\n')}`;
-    try { await navigator.clipboard.writeText(text.slice(0, 1990)); e.target.textContent = 'Copié ✓'; }
+    const url = location.href.split('#')[0] + '#/alertes';
+    const text = `✨ **Petit check avant le raid !** Un enchant ou une gemme a peut-être filé entre les doigts ? 👀\n👉 ${url}`;
+    try { await navigator.clipboard.writeText(text); e.target.textContent = 'Copié ✓'; }
     catch { e.target.textContent = 'Copie impossible'; }
     setTimeout(() => (e.target.textContent = 'Copier pour Discord'), 2000);
   };
