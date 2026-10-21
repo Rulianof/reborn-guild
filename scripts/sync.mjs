@@ -1,23 +1,11 @@
 // Récupère le roster de la guilde et les profils des persos via l'API Blizzard,
 // puis écrit site/data/guild.json. Usage : node scripts/sync.mjs
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { writeFileSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { ROOT, config, env } from './common.mjs';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const config = JSON.parse(readFileSync(join(ROOT, 'config.json'), 'utf8'));
-
-// En local on lit .env ; sur GitHub Actions les variables viennent des secrets.
-const envFile = join(ROOT, '.env');
-if (existsSync(envFile)) {
-  for (const line of readFileSync(envFile, 'utf8').split('\n')) {
-    const m = line.match(/^\s*([A-Z_]+)\s*=\s*(.*?)\s*$/);
-    if (m && !process.env[m[1]]) process.env[m[1]] = m[2];
-  }
-}
-// trim() : un espace ou retour à la ligne collé avec le secret fait échouer l'authentification.
-const BLIZZARD_CLIENT_ID = process.env.BLIZZARD_CLIENT_ID?.trim();
-const BLIZZARD_CLIENT_SECRET = process.env.BLIZZARD_CLIENT_SECRET?.trim();
+const BLIZZARD_CLIENT_ID = env('BLIZZARD_CLIENT_ID');
+const BLIZZARD_CLIENT_SECRET = env('BLIZZARD_CLIENT_SECRET');
 if (!BLIZZARD_CLIENT_ID || !BLIZZARD_CLIENT_SECRET) {
   console.error('BLIZZARD_CLIENT_ID / BLIZZARD_CLIENT_SECRET manquants (.env ou secrets GitHub).');
   process.exit(1);

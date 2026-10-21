@@ -3,6 +3,7 @@
   "locale": "fr_FR",
   "realm": "hyjal",
   "guild": "rebõrn",
+  "siteUrl": "https://rulianof.github.io/reborn-guild/",
   "niveauMin": 90,
   "joursInactif": 30,
   "rangs": {
@@ -21,5 +22,7 @@
   "comptes": {},
   "_mains": "Force le main d'un compte (sinon : meilleur ilvl)",
   "mains": [],
+  "_discord": "Jours de raid (en français) et heure de Paris du rappel enchants",
+  "discord": { "joursRaid": ["mercredi", "jeudi"], "heureRappel": 18 },
   "slotsEnchantables": ["HEAD", "SHOULDER", "CHEST", "LEGS", "FEET", "FINGER_1", "FINGER_2", "MAIN_HAND", "OFF_HAND"]
 }
