@@ -373,7 +373,7 @@ function renderPerso(realm, name) {
           const label = `<span style="color:${CLASS_COLORS[a.classId] || '#ccc'}">${esc(a.name)}</span> <span class="small">niv. ${a.level}${d?.ilvl ? ` · ${d.ilvl}` : ''}${d?.isMain ? ' · main' : ''}</span>`;
           return d ? `<a href="${charUrl(d)}" style="text-decoration:none">${label}</a>` : label;
         }).join(' · ')}</p>
-        <p class="small">Regroupement automatique par points de hauts faits (partagés par compte). Une erreur ? Corrige-la dans <code>config.json</code>.</p>` : ''}
+        <p class="small">Regroupement automatique par collection de mascottes (commune à tout le compte). Une erreur ? Corrige-la dans <code>config.json</code>.</p>` : ''}
 
         <div class="section-title">Métiers</div>
         <p>${(c.professions || []).map((p) => `${esc(p.name)} <span class="small">${p.skill}/${p.max}</span>`).join(' · ') || '<span class="muted">Aucun</span>'}
