@@ -25,6 +25,8 @@
   "raiderio": { "expansionId": 11 },
   "_wcl": "Warcraft Logs : difficulté 3 = normal, 4 = héroïque, 5 = mythique. shameOptOut : persos exclus du Hall of Shame",
   "wcl": { "guildName": "Rebõrn", "semaines": 4, "difficulty": 4, "zoneIds": [], "shameOptOut": [] },
+  "_coffre": "Seuils du coffre de la semaine : nombre de clés M+ et de boss de raid pour chaque emplacement",
+  "coffre": { "donjons": [1, 4, 8], "raid": [2, 4, 6] },
   "_discord": "Jours de raid (en français) et heure de Paris du rappel enchants",
   "discord": { "joursRaid": ["mercredi", "jeudi"], "heureRappel": 19 },
   "slotsEnchantables": ["HEAD", "SHOULDER", "CHEST", "LEGS", "FEET", "FINGER_1", "FINGER_2", "MAIN_HAND", "OFF_HAND"]

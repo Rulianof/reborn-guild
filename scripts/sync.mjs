@@ -102,8 +102,8 @@ const charPath = (m) => `/profile/wow/character/${m.character.realm.slug}/${enco
 async function fetchCharacter(m, summary) {
   const realm = m.character.realm.slug;
   const base = charPath(m);
-  const [equip, specs, profs, media] = summary
-    ? await Promise.all([api(`${base}/equipment`), api(`${base}/specializations`), api(`${base}/professions`), api(`${base}/character-media`)])
+  const [equip, specs, profs, media, encounters] = summary
+    ? await Promise.all([api(`${base}/equipment`), api(`${base}/specializations`), api(`${base}/professions`), api(`${base}/character-media`), api(`${base}/encounters/raids`)])
     : [];
   const char = {
     name: m.character.name,
@@ -143,6 +143,49 @@ async function fetchCharacter(m, summary) {
     })(),
     items,
     ...checks(items),
+    raidKillsThisWeek: raidKillsSince(encounters, lastReset()),
+  };
+}
+
+// Réinitialisation hebdomadaire EU : mercredi 04:00 UTC.
+function lastReset(now = Date.now()) {
+  const d = new Date(now);
+  d.setUTCHours(4, 0, 0, 0);
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() - 3 + 7) % 7));
+  if (d.getTime() > now) d.setUTCDate(d.getUTCDate() - 7);
+  return d.getTime();
+}
+
+const DIFF_RANK = { LFR: 1, NORMAL: 2, HEROIC: 3, MYTHIC: 4 };
+
+// Boss tués depuis la réinitialisation, avec la plus haute difficulté (une entrée par boss).
+function raidKillsSince(encounters, since) {
+  const best = new Map();
+  for (const exp of encounters?.expansions || []) {
+    for (const inst of exp.instances || []) {
+      for (const mode of inst.modes || []) {
+        const diff = mode.difficulty?.type;
+        for (const e of mode.progress?.encounters || []) {
+          if ((e.last_kill_timestamp || 0) < since || !DIFF_RANK[diff]) continue;
+          const k = e.encounter.id;
+          if (!best.has(k) || DIFF_RANK[diff] > DIFF_RANK[best.get(k).diff]) best.set(k, { instance: inst.instance.name, boss: e.encounter.name, diff });
+        }
+      }
+    }
+  }
+  return [...best.values()];
+}
+
+// Coffre de la semaine : emplacements débloqués et niveau de récompense de chacun.
+function computeVault(c, raids) {
+  const { donjons, raid } = config.coffre;
+  const keys = (c.rio?.weekRuns || []).map((r) => r.level).sort((a, b) => b - a);
+  const names = new Set(raids.map((r) => r.name));
+  const kills = (c.raidKillsThisWeek || []).filter((k) => names.has(k.instance)).sort((a, b) => DIFF_RANK[b.diff] - DIFF_RANK[a.diff]);
+  return {
+    reset: lastReset(),
+    mplus: { runs: keys.length, slots: donjons.map((n) => keys[n - 1] ?? null), next: donjons.find((n) => keys.length < n) ?? null },
+    raid: { bosses: kills.length, slots: raid.map((n) => kills[n - 1]?.diff ?? null), next: raid.find((n) => kills.length < n) ?? null, kills },
   };
 }
 
@@ -214,10 +257,11 @@ function groupAccounts(rosterMembers, summaries, petPrints, characters) {
   for (const [root, members] of groups) {
     const playable = members.map((m) => detailed.get(m.id)).filter(Boolean);
     if (!playable.length) continue;
-    // Main : forcé dans la config, sinon le plus joué en raid (Warcraft Logs), sinon le meilleur ilvl.
+    // Main : forcé dans la config, sinon un perso actif, le plus joué en raid (Warcraft Logs), puis le meilleur ilvl.
     const raidPulls = (c) => c.wcl?.attendance?.pulls || 0;
+    const active = (c) => (c.lastLogin && Date.now() - c.lastLogin < config.joursInactif * 86400000 ? 1 : 0);
     const main = playable.find((c) => forced.has(key(c.name)))
-      || [...playable].sort((a, b) => raidPulls(b) - raidPulls(a) || (b.ilvl || 0) - (a.ilvl || 0) || (b.lastLogin || 0) - (a.lastLogin || 0))[0];
+      || [...playable].sort((a, b) => active(b) - active(a) || raidPulls(b) - raidPulls(a) || (b.ilvl || 0) - (a.ilvl || 0) || (b.lastLogin || 0) - (a.lastLogin || 0))[0];
     for (const c of playable) {
       c.account = root;
       c.isMain = c === main;
@@ -261,6 +305,10 @@ async function main() {
     if (c.rio) rioOk++;
   });
   console.log(`Raider.IO : ${raids.length} raids en cours, ${rioOk} persos.`);
+  for (const c of characters.filter((c) => c.found)) {
+    c.vault = computeVault(c, raids);
+    delete c.raidKillsThisWeek;
+  }
 
   let wcl;
   try {

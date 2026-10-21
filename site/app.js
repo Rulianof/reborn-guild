@@ -272,6 +272,153 @@ function renderSoiree(date) {
     </table></div>`;
 }
 
+// ---------- Coffre de la semaine ----------
+const DIFF_LABEL = { LFR: 'LFR', NORMAL: 'N', HEROIC: 'H', MYTHIC: 'M' };
+const DIFF_NAME = { LFR: 'Outil raids', NORMAL: 'Normal', HEROIC: 'Héroïque', MYTHIC: 'Mythique' };
+
+function vaultPips(slots, fmt) {
+  return `<span class="pips">${slots.map((v) => `<span class="pip ${v != null ? 'on' : ''}">${v != null ? fmt(v) : '·'}</span>`).join('')}</span>`;
+}
+const vaultCount = ({ vault: v }) => (v ? v.mplus.slots.filter((x) => x != null).length + v.raid.slots.filter((x) => x != null).length : 0);
+const nextReset = (v) => new Date(v.reset + 7 * DAY).toLocaleString('fr-FR', { weekday: 'long', hour: '2-digit', minute: '2-digit' });
+
+function vaultCard(c) {
+  const v = c.vault;
+  if (!v) return '<p class="muted">Pas de données de coffre.</p>';
+  const mp = v.mplus, rd = v.raid;
+  return `<div class="vault">
+    <div class="vault-row"><span class="vault-label">Donjons M+</span>${vaultPips(mp.slots, (l) => `+${l}`)}
+      <span class="small">${mp.runs} clé${mp.runs > 1 ? 's' : ''}${mp.next ? ` · encore ${mp.next - mp.runs} pour le suivant` : ' · complet ✓'}</span></div>
+    <div class="vault-row"><span class="vault-label">Raid</span>${vaultPips(rd.slots, (d) => DIFF_LABEL[d])}
+      <span class="small">${rd.bosses} boss${rd.next ? ` · encore ${rd.next - rd.bosses} pour le suivant` : ' · complet ✓'}</span></div>
+  </div>`;
+}
+
+function renderCoffre() {
+  const list = visibleChars().filter((c) => c.vault).sort((a, b) => vaultCount(b) - vaultCount(a) || mplus(b) - mplus(a));
+  const any = list.find((c) => c.vault);
+  const full = list.filter((c) => vaultCount(c) === 6).length;
+  $app.innerHTML = `
+    <div class="toolbar"><div>
+      <h2 class="section-title" style="margin:0">Coffre de la semaine</h2>
+      <span class="muted">${any ? `Réinitialisation ${esc(nextReset(any.vault))}` : ''} · ${full} perso${full > 1 ? 's' : ''} avec les 6 emplacements</span>
+    </div><span style="flex:1"></span>${filters()}</div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Perso</th><th>Donjons M+</th><th>Clés</th><th>Raid</th><th>Boss</th><th>Emplacements</th></tr></thead>
+      <tbody class="rows">${list.map((c) => `<tr data-href="${charUrl(c)}">
+        <td>${charCell(c)}</td>
+        <td>${vaultPips(c.vault.mplus.slots, (l) => `+${l}`)}</td>
+        <td class="num">${c.vault.mplus.runs}</td>
+        <td>${vaultPips(c.vault.raid.slots, (d) => DIFF_LABEL[d])}</td>
+        <td class="num">${c.vault.raid.bosses}</td>
+        <td class="num">${vaultCount(c)}/6</td>
+      </tr>`).join('')}</tbody>
+    </table></div>
+    <p class="small">Clés M+ via Raider.IO, boss de raid via l'armurerie Blizzard (mise à jour au logout). Les Gouffres ne sont pas fournis par les API. </p>`;
+  bindFilters(renderCoffre);
+}
+
+// ---------- Mon perso ----------
+const ME_KEY = 'reborn.monPerso';
+const getMe = () => { try { return localStorage.getItem(ME_KEY); } catch { return null; } };
+const setMe = (v) => { try { v ? localStorage.setItem(ME_KEY, v) : localStorage.removeItem(ME_KEY); } catch { /* navigation privée */ } };
+const meId = (c) => `${c.realm}/${c.name.toLowerCase()}`;
+
+// Conseils concrets, du plus important au moins important.
+function conseils(c) {
+  const out = [];
+  if (c.missingEnchants?.length) out.push({ lvl: 'bad', icon: '✦', text: `Pose un enchant sur : <b>${c.missingEnchants.map(esc).join(', ')}</b>` });
+  if (c.emptySockets?.length) out.push({ lvl: 'warn', icon: '◆', text: `Sertis une gemme : <b>${groupSlots(c.emptySockets).map(esc).join(', ')}</b>` });
+  const v = c.vault;
+  if (v?.mplus.next) out.push({ lvl: 'info', icon: '🗝️', text: `Coffre : encore <b>${v.mplus.next - v.mplus.runs} clé${v.mplus.next - v.mplus.runs > 1 ? 's' : ''}</b> pour débloquer l'emplacement M+ suivant.` });
+  if (v?.raid.next) out.push({ lvl: 'info', icon: '🐉', text: `Coffre : encore <b>${v.raid.next - v.raid.bosses} boss</b> pour l'emplacement raid suivant.` });
+  const items = (c.items || []).filter((i) => i.ilvl);
+  if (items.length) {
+    const low = [...items].sort((a, b) => a.ilvl - b.ilvl)[0];
+    if (low.ilvl <= c.ilvl - 10) out.push({ lvl: 'info', icon: '⬆️', text: `Ta pièce la plus faible : <b>${esc(low.slotName)}</b> (${low.ilvl}, ta moyenne est ${c.ilvl}). À améliorer en priorité.` });
+  }
+  const p = c.wcl?.parses;
+  if (p?.bosses?.length > 1 && p.median != null) {
+    const worst = [...p.bosses].sort((a, b) => a.best - b.best)[0];
+    if (worst.best < p.median - 15) out.push({ lvl: 'info', icon: '📊', text: `Ton parse sur <b>${esc(worst.name)}</b> (${Math.round(worst.best)}) est loin de ta médiane (${Math.round(p.median)}). Jette un œil aux meilleurs logs de ta spé sur ce boss.` });
+  }
+  const night = (state.raids?.nights || []).find((n) => n.players.some((x) => x.name === c.name));
+  const me = night?.players.find((x) => x.name === c.name);
+  if (me) {
+    if (me.noFlask) out.push({ lvl: 'warn', icon: '🧪', text: `${esc(fmtDate(night.date))} : pas de flacon sur <b>${me.noFlask} pull${me.noFlask > 1 ? 's' : ''}</b>.` });
+    if (me.noFood) out.push({ lvl: 'warn', icon: '🍗', text: `${esc(fmtDate(night.date))} : pas de nourriture sur <b>${me.noFood} pull${me.noFood > 1 ? 's' : ''}</b>.` });
+    if (me.firstDeaths >= 2) out.push({ lvl: 'warn', icon: '🪦', text: `${esc(fmtDate(night.date))} : premier mort sur <b>${me.firstDeaths} pulls</b>. Regarde ce qui t'a tué dans le log.` });
+  }
+  if (c.lastLogin && Date.now() - c.lastLogin > 7 * DAY) out.push({ lvl: 'info', icon: '🕒', text: `Ces infos datent de ta dernière déconnexion (${ago(c.lastLogin)}).` });
+  return out;
+}
+
+function renderPicker() {
+  const chars = [...state.data.characters].sort((a, b) => (a.isMain === false) - (b.isMain === false) || a.name.localeCompare(b.name));
+  $app.innerHTML = `<div class="card" style="max-width:560px;margin:0 auto">
+      <h3>Qui es-tu ?</h3>
+      <p class="muted" style="margin-top:0">Choisis ton perso : le site s'en souviendra sur ce navigateur.</p>
+      <div class="toolbar"><input type="search" id="pick" placeholder="Nom de ton perso…" autofocus></div>
+      <ul id="picklist" class="picklist"></ul>
+    </div>`;
+  const draw = (q = '') => {
+    const plain = (s) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+    const list = chars.filter((c) => !q || plain(c.name).includes(plain(q))).slice(0, 30);
+    $app.querySelector('#picklist').innerHTML = list.map((c) => `<li><button class="pick" data-id="${esc(meId(c))}">${charCell(c)}<span class="small">${esc(c.spec || '')} · ${c.ilvl}</span></button></li>`).join('') || '<li class="muted">Aucun perso trouvé.</li>';
+  };
+  draw();
+  $app.querySelector('#pick').oninput = (e) => draw(e.target.value);
+  $app.querySelector('#picklist').onclick = (e) => {
+    const b = e.target.closest('button[data-id]');
+    if (b) { setMe(b.dataset.id); renderMoi(); }
+  };
+}
+
+function renderMoi() {
+  const id = getMe();
+  const c = id && state.data.characters.find((x) => meId(x) === id);
+  if (!c) return renderPicker();
+  const tips = conseils(c);
+  const account = [c, ...(c.alts || []).map((a) => findChar(a.name, a.realm)).filter(Boolean)].sort((a, b) => b.ilvl - a.ilvl);
+  const night = (state.raids?.nights || []).find((n) => n.players.some((x) => x.name === c.name));
+  const me = night?.players.find((x) => x.name === c.name);
+
+  $app.innerHTML = `
+    <div class="me-head">
+      ${c.avatar ? `<img src="${esc(c.avatar)}" alt="">` : ''}
+      <div><h2 style="color:${color(c)}">${esc(c.name)}</h2>
+        <div class="muted">${esc([c.spec, c.className].filter(Boolean).join(' '))} · <b>${c.ilvl} ilvl</b> · M+ ${scoreCell(c)}${c.wcl?.parses?.best != null ? ` · parse ${parseCell(c.wcl.parses.best)}` : ''}</div></div>
+      <span style="flex:1"></span>
+      <a class="btn" href="${charUrl(c)}">Fiche complète</a>
+      <button class="btn" id="change">Changer de perso</button>
+    </div>
+
+    <div class="me-grid">
+      <div class="card"><h3>À faire${tips.length ? `<small>${tips.length}</small>` : ''}</h3>
+        ${tips.length ? `<ul class="tips">${tips.map((t) => `<li class="tip ${t.lvl}"><span>${t.icon}</span><span>${t.text}</span></li>`).join('')}</ul>`
+          : '<p style="margin:0">Rien à signaler, tu es prêt pour le raid 💪</p>'}
+      </div>
+      <div class="card"><h3>Coffre de la semaine<small>réinit. ${c.vault ? esc(nextReset(c.vault)) : ''}</small></h3>
+        ${vaultCard(c)}
+        ${c.vault?.raid.kills?.length ? `<p class="small" style="margin:10px 0 0">${c.vault.raid.kills.map((k) => `${esc(k.boss)} <b>${DIFF_LABEL[k.diff]}</b>`).join(' · ')}</p>` : ''}
+      </div>
+      ${me ? `<div class="card"><h3>Dernier raid<small>${esc(fmtDate(night.date))}</small></h3>
+        <p style="margin:0">Meilleur parse ${parseCell(me.bestParse)} · moyen ${parseCell(me.avgParse)} · ${me.deaths} mort${me.deaths > 1 ? 's' : ''} · ${me.interrupts} interrupt${me.interrupts > 1 ? 's' : ''}</p>
+        <p style="margin:8px 0 0"><a href="#/soiree/${night.date}">Voir la soirée →</a></p></div>` : ''}
+    </div>
+
+    ${account.length > 1 ? `<div class="section-title">Mes persos</div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Perso</th><th>ilvl</th><th>M+</th><th>Coffre M+</th><th>Coffre raid</th><th>Stuff</th></tr></thead>
+      <tbody class="rows">${account.map((x) => `<tr data-href="${charUrl(x)}">
+        <td>${charCell(x)}</td><td class="num">${x.ilvl}</td><td class="num">${scoreCell(x)}</td>
+        <td>${x.vault ? vaultPips(x.vault.mplus.slots, (l) => `+${l}`) : '—'}</td>
+        <td>${x.vault ? vaultPips(x.vault.raid.slots, (d) => DIFF_LABEL[d]) : '—'}</td>
+        <td>${statusPill(x)}</td></tr>`).join('')}</tbody>
+    </table></div>` : ''}`;
+  $app.querySelector('#change').onclick = () => { setMe(null); renderPicker(); };
+}
+
 // ---------- Alertes ----------
 function renderAlertes() {
   const list = visibleChars().filter((c) => c.found && issues(c)).sort((a, b) => b.ilvl - a.ilvl);
@@ -349,6 +496,7 @@ function renderPerso(realm, name) {
           <a class="btn" target="_blank" rel="noopener" href="https://worldofwarcraft.blizzard.com/fr-fr/character/eu/${slug}">Armurerie</a>
           <a class="btn" target="_blank" rel="noopener" href="https://www.warcraftlogs.com/character/eu/${slug}">Warcraft Logs</a>
           <a class="btn" target="_blank" rel="noopener" href="${esc(c.rio?.url || `https://raider.io/characters/eu/${slug}`)}">Raider.IO</a>
+          <button class="btn ${getMe() === meId(c) ? 'gold' : ''}" id="its-me">${getMe() === meId(c) ? '★ Mon perso' : "C'est moi"}</button>
         </div>
         <div>${statusPill(c)}</div>
 
@@ -362,6 +510,8 @@ function renderPerso(realm, name) {
         ${c.rio ? `<div class="section-title">Mythique+ & raid</div>
         <p>Score M+ : ${scoreCell(c)}${(state.data.raids || []).map((r) => c.rio.raids?.[r.slug]?.summary ? ` · ${esc(r.name)} <b>${esc(c.rio.raids[r.slug].summary)}</b>` : '').join('')}</p>
         ${c.rio.bestRuns.length ? `<div class="runs">${c.rio.bestRuns.map((r) => `<span class="run" title="${esc(r.dungeon)}"><b>+${r.level}</b>${'★'.repeat(r.upgrades)} ${esc(r.short)}</span>`).join('')}</div>` : ''}` : ''}
+
+        ${c.vault ? `<div class="section-title">Coffre de la semaine</div>${vaultCard(c)}` : ''}
 
         ${c.wcl?.parses ? `<div class="section-title">Warcraft Logs</div>
         <p>Parse moyen ${parseCell(c.wcl.parses.best)} · médian ${parseCell(c.wcl.parses.median)}${c.wcl.attendance ? ` · ${c.wcl.attendance.nights} soirée${c.wcl.attendance.nights > 1 ? 's' : ''} de raid loggée${c.wcl.attendance.nights > 1 ? 's' : ''}` : ''}</p>
@@ -394,6 +544,7 @@ function renderPerso(realm, name) {
       </div>`;
     }).join('')}</div>`;
 
+  document.getElementById('its-me').onclick = () => { setMe(meId(c)); location.hash = '#/moi'; };
   const btn = document.getElementById('copy-talents');
   if (btn) btn.onclick = async () => {
     try { await navigator.clipboard.writeText(c.talentCode); btn.textContent = 'Copié ✓'; } catch { btn.textContent = 'Copie impossible'; }
@@ -416,6 +567,8 @@ function route() {
   window.scrollTo(0, 0);
   if (tab === 'alertes') renderAlertes();
   else if (tab === 'classement') renderClassement();
+  else if (tab === 'coffre') renderCoffre();
+  else if (tab === 'moi') renderMoi();
   else if (tab === 'soirees') renderSoirees();
   else if (tab === 'soiree') renderSoiree(parts[1]);
   else if (tab === 'metiers') renderMetiers();

@@ -46,7 +46,7 @@ const pickProgress = (p) => (p ? { summary: p.summary, normal: p.normal_bosses_k
 export async function characterData(c, raids) {
   const p = await rio('/characters/profile', {
     region: config.region, realm: c.realm, name: c.name,
-    fields: 'mythic_plus_scores_by_season:current,mythic_plus_best_runs,raid_progression',
+    fields: 'mythic_plus_scores_by_season:current,mythic_plus_best_runs,mythic_plus_weekly_highest_level_runs,raid_progression',
   });
   if (!p) return null;
   const season = p.mythic_plus_scores_by_season?.[0];
@@ -57,6 +57,8 @@ export async function characterData(c, raids) {
     bestRuns: (p.mythic_plus_best_runs || []).map((r) => ({
       dungeon: r.dungeon, short: r.short_name, level: r.mythic_level, upgrades: r.num_keystone_upgrades, score: Math.round(r.score || 0),
     })).sort((a, b) => b.level - a.level),
+    // Clés faites depuis la réinitialisation hebdomadaire (pour le coffre).
+    weekRuns: (p.mythic_plus_weekly_highest_level_runs || []).map((r) => ({ short: r.short_name, dungeon: r.dungeon, level: r.mythic_level, upgrades: r.num_keystone_upgrades })),
     raids: Object.fromEntries(raids.map((r) => [r.slug, pickProgress(p.raid_progression?.[r.slug])])),
   };
 }
