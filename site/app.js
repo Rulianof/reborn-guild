@@ -544,7 +544,6 @@ function renderPerso(realm, name) {
       </div>`;
     }).join('')}</div>`;
 
-  window.PortraitFX?.attach($app.querySelector('.portrait'), { ...c, classColor: color(c) });
   document.getElementById('its-me').onclick = () => { setMe(meId(c)); location.hash = '#/moi'; };
   const btn = document.getElementById('copy-talents');
   if (btn) btn.onclick = async () => {
