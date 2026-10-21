@@ -368,7 +368,7 @@ function renderPerso(realm, name) {
         <div class="runs">${c.wcl.parses.bosses.map((b) => `<span class="run">${parseCell(b.best)} ${esc(b.name)}</span>`).join('')}</div>` : ''}
 
         ${c.alts?.length ? `<div class="section-title">${c.isMain ? 'Rerolls' : `Compte de ${esc(c.main)}`}</div>
-        <p>${c.alts.map((a) => {
+        <p>${[...c.alts].sort((a, b) => (findChar(b.name, b.realm)?.ilvl || 0) - (findChar(a.name, a.realm)?.ilvl || 0) || b.level - a.level).map((a) => {
           const d = findChar(a.name, a.realm);
           const label = `<span style="color:${CLASS_COLORS[a.classId] || '#ccc'}">${esc(a.name)}</span> <span class="small">niv. ${a.level}${d?.ilvl ? ` · ${d.ilvl}` : ''}${d?.isMain ? ' · main' : ''}</span>`;
           return d ? `<a href="${charUrl(d)}" style="text-decoration:none">${label}</a>` : label;
