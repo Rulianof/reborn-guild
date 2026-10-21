@@ -3,6 +3,7 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { ROOT, config, env } from './common.mjs';
+import { currentRaids, guildProgression, characterData } from './raiderio.mjs';
 
 const BLIZZARD_CLIENT_ID = env('BLIZZARD_CLIENT_ID');
 const BLIZZARD_CLIENT_SECRET = env('BLIZZARD_CLIENT_SECRET');
@@ -208,6 +209,16 @@ async function main() {
     return c;
   });
 
+  // Raider.IO : rythme modéré pour rester sous leur limite de requêtes publique.
+  const raids = await currentRaids();
+  const progression = raids.length ? await guildProgression(raids) : null;
+  let rioOk = 0;
+  await pool(characters.filter((c) => c.found), 4, async (c) => {
+    c.rio = await characterData(c, raids);
+    if (c.rio) rioOk++;
+  });
+  console.log(`Raider.IO : ${raids.length} raids en cours, ${rioOk} persos.`);
+
   const accounts = groupAccounts(roster.members, summaries, characters);
   console.log(`${accounts} comptes détectés pour ${characters.length} persos.`);
 
@@ -225,6 +236,8 @@ async function main() {
     generatedAt: new Date().toISOString(),
     guild: { name: roster.guild.name, realm: roster.guild.realm.name, faction: roster.guild.faction?.name, memberCount: roster.members.length },
     config: { niveauMin: config.niveauMin, joursInactif: config.joursInactif, rangs: config.rangs },
+    raids,
+    progression,
     enchantStats: stats,
     characters,
   };

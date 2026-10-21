@@ -108,6 +108,16 @@ td.num { font-variant-numeric: tabular-nums; font-weight: 600; }
 .q-POOR { color: #9d9d9d; } .q-COMMON { color: #fff; } .q-UNCOMMON { color: #1eff00; } .q-RARE { color: #0070dd; }
 .q-EPIC { color: #a335ee; } .q-LEGENDARY { color: #ff8000; } .q-ARTIFACT { color: #e6cc80; } .q-HEIRLOOM { color: #00ccff; }
 
+/* Progression et M+ */
+.bar-row { display: grid; grid-template-columns: 70px 1fr 44px; gap: 8px; align-items: center; font-size: 13px; margin: 4px 0; }
+.bar-row b { text-align: right; font-variant-numeric: tabular-nums; }
+.bar { height: 8px; background: #ffffff10; border-radius: 99px; overflow: hidden; }
+.bar i { display: block; height: 100%; border-radius: 99px; }
+.bar i.n { background: #1eff00; } .bar i.h { background: #0070dd; } .bar i.m { background: #a335ee; }
+.runs { display: flex; flex-wrap: wrap; gap: 6px; }
+.run { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; font-size: 13px; }
+.run b { color: var(--gold); margin-right: 2px; }
+
 @media (max-width: 760px) {
   .brand h1 { font-size: 34px; }
   .profile { grid-template-columns: 1fr; }

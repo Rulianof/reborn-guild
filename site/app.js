@@ -13,6 +13,9 @@ const isActive = (c) => c.lastLogin && Date.now() - c.lastLogin < state.data.con
 const rankName = (r) => state.data.config.rangs[r] ?? `Rang ${r}`;
 const issues = (c) => (c.missingEnchants?.length || 0) + (c.emptySockets?.length || 0);
 const groupSlots = (list) => Object.entries(list.reduce((m, s) => ((m[s] = (m[s] || 0) + 1), m), {})).map(([s, n]) => (n > 1 ? `${s} ×${n}` : s));
+const mplus = (c) => c.rio?.score || 0;
+const scoreCell = (c) => (mplus(c) ? `<b style="color:${esc(c.rio.color || 'inherit')}">${mplus(c)}</b>` : '<span class="muted">—</span>');
+const mainRaid = () => state.data.raids?.[0];
 const charUrl = (c) => `#/perso/${c.realm}/${encodeURIComponent(c.name.toLowerCase())}`;
 const ago = (ts) => {
   if (!ts) return '?';
@@ -65,6 +68,7 @@ function renderKpis() {
     [active.length, 'joueurs actifs'],
     [avg, 'ilvl moyen'],
     [`${active.length ? Math.round((100 * clean) / active.length) : 0} %`, 'stuff complet'],
+    ...(d.progression?.raids?.[0]?.summary ? [[d.progression.raids[0].summary, esc(d.progression.raids[0].name)]] : []),
   ].map(([v, l]) => `<div class="kpi"><b>${v}</b><span>${l}</span></div>`).join('');
   document.getElementById('guild-sub').textContent = `${d.guild.realm} · EU · ${d.guild.faction ?? ''}`;
   document.getElementById('updated').textContent = `Mis à jour le ${new Date(d.generatedAt).toLocaleString('fr-FR')}`;
@@ -85,7 +89,7 @@ function renderMembres() {
     </div>
     <div class="table-wrap"><table>
       <thead><tr>
-        ${[['name', 'Perso'], ['spec', 'Spé'], ['ilvl', 'ilvl'], ['rank', 'Rang'], ['prof', 'Métiers'], ['issues', 'État'], ['lastLogin', 'Vu']]
+        ${[['name', 'Perso'], ['spec', 'Spé'], ['ilvl', 'ilvl'], ['mplus', 'M+'], ['rank', 'Rang'], ['prof', 'Métiers'], ['issues', 'État'], ['lastLogin', 'Vu']]
           .map(([k, l]) => `<th data-k="${k}" class="${state.sort.key === k ? 'sorted' : ''}">${l}${state.sort.key === k ? (state.sort.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('')}
       </tr></thead>
       <tbody id="rows"></tbody>
@@ -98,7 +102,7 @@ function renderMembres() {
       .filter((c) => !state.cls || c.classId == state.cls)
       .filter((c) => state.rank === '' || String(c.rank) === state.rank);
     const val = {
-      name: (c) => c.name, spec: (c) => c.spec || '', ilvl: (c) => c.ilvl || 0, rank: (c) => c.rank,
+      name: (c) => c.name, spec: (c) => c.spec || '', ilvl: (c) => c.ilvl || 0, mplus, rank: (c) => c.rank,
       prof: (c) => c.professions?.map((p) => p.name).join() || '', issues: issues, lastLogin: (c) => c.lastLogin || 0,
     }[state.sort.key];
     list.sort((a, b) => { const x = val(a), y = val(b); return (x > y ? 1 : x < y ? -1 : 0) * state.sort.dir; });
@@ -107,11 +111,12 @@ function renderMembres() {
         <td>${charCell(c)}</td>
         <td>${esc(c.spec ?? '—')}${c.hero ? `<div class="small">${esc(c.hero)}</div>` : ''}</td>
         <td class="num">${c.ilvl || '—'}</td>
+        <td class="num">${scoreCell(c)}</td>
         <td>${esc(rankName(c.rank))}</td>
         <td class="small">${(c.professions || []).map((p) => esc(p.name)).join(' · ') || '—'}</td>
         <td>${statusPill(c)}</td>
         <td class="small">${ago(c.lastLogin)}</td>
-      </tr>`).join('') || '<tr><td colspan="7" class="muted">Aucun perso.</td></tr>';
+      </tr>`).join('') || '<tr><td colspan="8" class="muted">Aucun perso.</td></tr>';
   };
   draw();
 
@@ -124,6 +129,52 @@ function renderMembres() {
     state.sort = { key: k, dir: state.sort.key === k ? -state.sort.dir : (k === 'name' || k === 'rank' ? 1 : -1) };
     renderMembres();
   });
+  $app.querySelector('#rows').onclick = (e) => { const tr = e.target.closest('tr[data-href]'); if (tr) location.hash = tr.dataset.href; };
+}
+
+// ---------- Classement ----------
+function progressBars(r) {
+  const row = (label, n, cls) => `<div class="bar-row"><span>${label}</span><div class="bar"><i class="${cls}" style="width:${(100 * (n || 0)) / r.bosses}%"></i></div><b>${n || 0}/${r.bosses}</b></div>`;
+  return row('Normal', r.normal, 'n') + row('Héroïque', r.heroic, 'h') + row('Mythique', r.mythic, 'm');
+}
+
+function renderClassement() {
+  const prog = state.data.progression;
+  const raid = mainRaid();
+  const list = visibleChars().filter((c) => mplus(c) > 0).sort((a, b) => mplus(b) - mplus(a));
+  const medal = (i) => ['🥇', '🥈', '🥉'][i] || `<span class="muted">${i + 1}</span>`;
+
+  $app.innerHTML = `
+    ${prog ? `<div class="section-title" style="margin-top:0">Progression de la guilde</div>
+    <div class="grid">${prog.raids.map((r) => `
+      <div class="card"><h3>${esc(r.name)}<small>${esc(r.summary || '—')}</small></h3>
+        ${progressBars(r)}
+        ${r.rankRealm ? `<p class="small" style="margin:8px 0 0">${r.rankRealm}<sup>e</sup> guilde de ${esc(state.data.guild.realm)}</p>` : ''}
+      </div>`).join('')}
+    </div>
+    <p class="small"><a href="${esc(prog.url)}" target="_blank" rel="noopener">Voir la guilde sur Raider.IO</a></p>` : ''}
+
+    <div class="toolbar" style="margin-top:24px">
+      <h2 class="section-title" style="margin:0">Classement Mythique+</h2><span style="flex:1"></span>
+      ${filters()}
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>#</th><th>Perso</th><th>Spé</th><th>Score M+</th><th>Meilleure clé</th>${raid ? `<th>${esc(raid.name)}</th>` : ''}<th>ilvl</th></tr></thead>
+      <tbody id="rows">${list.map((c, i) => {
+        const best = c.rio.bestRuns[0];
+        return `<tr data-href="${charUrl(c)}">
+          <td class="num">${medal(i)}</td>
+          <td>${charCell(c)}</td>
+          <td>${esc(c.spec ?? '—')}</td>
+          <td class="num">${scoreCell(c)}</td>
+          <td>${best ? `<b>+${best.level}</b> <span class="small">${esc(best.dungeon)}</span>` : '—'}</td>
+          ${raid ? `<td>${esc(c.rio.raids?.[raid.slug]?.summary || '—')}</td>` : ''}
+          <td class="num">${c.ilvl}</td>
+        </tr>`;
+      }).join('') || '<tr><td colspan="7" class="muted">Aucun score M+ cette saison.</td></tr>'}</tbody>
+    </table></div>
+    <p class="small">Scores de la saison en cours, via Raider.IO (mis à jour à chaque synchro).</p>`;
+  bindFilters(renderClassement);
   $app.querySelector('#rows').onclick = (e) => { const tr = e.target.closest('tr[data-href]'); if (tr) location.hash = tr.dataset.href; };
 }
 
@@ -203,7 +254,7 @@ function renderPerso(realm, name) {
         <div class="links">
           <a class="btn" target="_blank" rel="noopener" href="https://worldofwarcraft.blizzard.com/fr-fr/character/eu/${slug}">Armurerie</a>
           <a class="btn" target="_blank" rel="noopener" href="https://www.warcraftlogs.com/character/eu/${slug}">Warcraft Logs</a>
-          <a class="btn" target="_blank" rel="noopener" href="https://raider.io/characters/eu/${slug}">Raider.IO</a>
+          <a class="btn" target="_blank" rel="noopener" href="${esc(c.rio?.url || `https://raider.io/characters/eu/${slug}`)}">Raider.IO</a>
         </div>
         <div>${statusPill(c)}</div>
 
@@ -213,6 +264,10 @@ function renderPerso(realm, name) {
             <button class="btn" id="copy-talents">Copier le code</button>
             <a class="btn" target="_blank" rel="noopener" href="https://www.wowhead.com/fr/talent-calc/blizzard/${esc(c.talentCode)}">Voir sur Wowhead</a>
           </div>` : '<p class="muted">Pas de talents disponibles.</p>'}
+
+        ${c.rio ? `<div class="section-title">Mythique+ & raid</div>
+        <p>Score M+ : ${scoreCell(c)}${(state.data.raids || []).map((r) => c.rio.raids?.[r.slug]?.summary ? ` · ${esc(r.name)} <b>${esc(c.rio.raids[r.slug].summary)}</b>` : '').join('')}</p>
+        ${c.rio.bestRuns.length ? `<div class="runs">${c.rio.bestRuns.map((r) => `<span class="run" title="${esc(r.dungeon)}"><b>+${r.level}</b>${'★'.repeat(r.upgrades)} ${esc(r.short)}</span>`).join('')}</div>` : ''}` : ''}
 
         ${c.alts?.length ? `<div class="section-title">${c.isMain ? 'Rerolls' : `Compte de ${esc(c.main)}`}</div>
         <p>${c.alts.map((a) => {
@@ -256,6 +311,7 @@ function route() {
   document.querySelectorAll('.tabs a').forEach((a) => a.classList.toggle('active', a.dataset.tab === tab));
   window.scrollTo(0, 0);
   if (tab === 'alertes') renderAlertes();
+  else if (tab === 'classement') renderClassement();
   else if (tab === 'metiers') renderMetiers();
   else if (tab === 'perso') renderPerso(parts[1], parts[2]);
   else renderMembres();

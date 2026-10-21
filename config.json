@@ -22,6 +22,7 @@
   "comptes": {},
   "_mains": "Force le main d'un compte (sinon : meilleur ilvl)",
   "mains": [],
+  "raiderio": { "expansionId": 11 },
   "_discord": "Jours de raid (en français) et heure de Paris du rappel enchants",
   "discord": { "joursRaid": ["mercredi", "jeudi"], "heureRappel": 19 },
   "slotsEnchantables": ["HEAD", "SHOULDER", "CHEST", "LEGS", "FEET", "FINGER_1", "FINGER_2", "MAIN_HAND", "OFF_HAND"]
