@@ -118,6 +118,16 @@ td.num { font-variant-numeric: tabular-nums; font-weight: 600; }
 .run { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; font-size: 13px; }
 .run b { color: var(--gold); margin-right: 2px; }
 
+/* Hall of Fame / Shame */
+.hall-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+.hall { display: flex; gap: 12px; align-items: center; padding: 14px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--panel); }
+.hall.fame { border-color: #d9b45a55; background: linear-gradient(135deg, #d9b45a14, var(--panel) 60%); }
+.hall.shame { border-color: #e5534b44; background: linear-gradient(135deg, #e5534b12, var(--panel) 60%); }
+.hall-icon { font-size: 30px; line-height: 1; }
+.hall-title { font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+.hall-who { font-size: 17px; }
+.night:hover { border-color: var(--gold-dim); }
+
 @media (max-width: 760px) {
   .brand h1 { font-size: 34px; }
   .profile { grid-template-columns: 1fr; }

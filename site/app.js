@@ -4,7 +4,7 @@ const CLASS_COLORS = {
 };
 const DAY = 86400000;
 
-const state = { data: null, sort: { key: 'ilvl', dir: -1 }, q: '', cls: '', rank: '', inactifs: false, mainsOnly: true };
+const state = { data: null, raids: null, sort: { key: 'ilvl', dir: -1 }, q: '', cls: '', rank: '', inactifs: false, mainsOnly: true };
 const $app = document.getElementById('app');
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -16,6 +16,10 @@ const groupSlots = (list) => Object.entries(list.reduce((m, s) => ((m[s] = (m[s]
 const mplus = (c) => c.rio?.score || 0;
 const scoreCell = (c) => (mplus(c) ? `<b style="color:${esc(c.rio.color || 'inherit')}">${mplus(c)}</b>` : '<span class="muted">—</span>');
 const mainRaid = () => state.data.raids?.[0];
+const parseColor = (p) => (p >= 100 ? '#e5cc80' : p >= 99 ? '#e268a8' : p >= 95 ? '#ff8000' : p >= 75 ? '#a335ee' : p >= 50 ? '#0070ff' : p >= 25 ? '#1eff00' : '#888');
+const parseCell = (p) => (typeof p === 'number' ? `<b style="color:${parseColor(p)}">${Math.round(p)}</b>` : '<span class="muted">—</span>');
+const fmtNum = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(2)} M` : n >= 1e3 ? `${Math.round(n / 1e3)} k` : String(n));
+const fmtDate = (d) => new Date(d + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 const charUrl = (c) => `#/perso/${c.realm}/${encodeURIComponent(c.name.toLowerCase())}`;
 const ago = (ts) => {
   if (!ts) return '?';
@@ -173,9 +177,99 @@ function renderClassement() {
         </tr>`;
       }).join('') || '<tr><td colspan="7" class="muted">Aucun score M+ cette saison.</td></tr>'}</tbody>
     </table></div>
-    <p class="small">Scores de la saison en cours, via Raider.IO (mis à jour à chaque synchro).</p>`;
+    <p class="small">Scores de la saison en cours, via Raider.IO (mis à jour à chaque synchro).</p>
+    ${parsesTable()}`;
   bindFilters(renderClassement);
   $app.querySelector('#rows').onclick = (e) => { const tr = e.target.closest('tr[data-href]'); if (tr) location.hash = tr.dataset.href; };
+}
+
+function parsesTable() {
+  const list = visibleChars().filter((c) => c.wcl?.parses?.best != null).sort((a, b) => b.wcl.parses.best - a.wcl.parses.best);
+  if (!list.length) return '';
+  const nights = state.raids?.nights?.length || 0;
+  return `<h2 class="section-title" style="margin-top:28px">Classement des parses</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>#</th><th>Perso</th><th>Spé</th><th>Parse moyen (meilleurs)</th><th>Parse médian</th><th>Boss loggés</th><th>Présence</th></tr></thead>
+      <tbody class="rows">${list.map((c, i) => `<tr data-href="${charUrl(c)}">
+        <td class="num">${['🥇', '🥈', '🥉'][i] || `<span class="muted">${i + 1}</span>`}</td>
+        <td>${charCell(c)}</td><td>${esc(c.spec ?? '—')}</td>
+        <td class="num">${parseCell(c.wcl.parses.best)}</td>
+        <td class="num">${parseCell(c.wcl.parses.median)}</td>
+        <td class="num">${c.wcl.parses.bosses.length}</td>
+        <td class="num">${nights ? `${c.wcl.attendance?.nights || 0}/${nights}` : '—'}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>
+    <p class="small">Parses Warcraft Logs de la zone en cours. Présence : soirées de raid loggées sur les ${state.data.config.semainesWcl || 4} dernières semaines.</p>`;
+}
+
+// ---------- Soirées (Warcraft Logs) ----------
+function wclPlaceholder() {
+  const st = state.raids?.status;
+  const msg = st === 'error' ? 'Warcraft Logs ne répond pas pour le moment (maintenance ?). Les soirées reviendront à la prochaine synchro.'
+    : 'Warcraft Logs n’est pas encore connecté. Dès que la clé sera ajoutée, chaque soirée de raid aura sa page avec son Hall of Fame et son Hall of Shame.';
+  return `<div class="card"><h3>Soirées de raid</h3><p class="muted" style="margin:0">${msg}</p></div>`;
+}
+
+function renderSoirees() {
+  const nights = state.raids?.nights || [];
+  if (!nights.length) { $app.innerHTML = wclPlaceholder(); return; }
+  $app.innerHTML = `
+    ${state.raids.mock ? '<p class="pill warn">Données de démonstration</p>' : ''}
+    <div class="grid">${nights.map((n) => {
+      const mvp = n.fame.find((f) => f.id === 'parse');
+      const shame = n.shame.find((f) => f.id === 'floor');
+      return `<a class="card night" href="#/soiree/${n.date}" style="text-decoration:none">
+        <h3 style="text-transform:capitalize">${esc(fmtDate(n.date))}<small>${n.players.length} joueurs</small></h3>
+        <p class="muted" style="margin:0 0 8px">${esc(n.zone || '')} · ${n.kills.length} boss tués · ${n.wipes} wipe${n.wipes > 1 ? 's' : ''}</p>
+        ${mvp ? `<div>🏆 <b>${esc(mvp.name)}</b> <span class="small">${mvp.value}% sur ${esc(mvp.detail || '')}</span></div>` : ''}
+        ${shame ? `<div>💀 <b>${esc(shame.name)}</b> <span class="small">${shame.value} morts</span></div>` : ''}
+      </a>`;
+    }).join('')}</div>`;
+}
+
+function hallCards(items, kind) {
+  return items.map((a) => {
+    const who = a.list ? a.list.map(esc).join(', ') : `<b>${esc(a.name)}</b>`;
+    const val = a.list ? `${a.list.length} joueur${a.list.length > 1 ? 's' : ''} sans mourir` : `${kind === 'fame' && a.id !== 'parse' && a.id !== 'kick' && a.id !== 'dispel' ? fmtNum(a.value) : a.value}${a.unit || ''}${a.detail ? ` · ${esc(a.detail)}` : ''}`;
+    return `<div class="hall ${kind}"><span class="hall-icon">${a.icon}</span><div><div class="hall-title">${esc(a.title)}</div><div class="hall-who">${who}</div><div class="small">${val}</div></div></div>`;
+  }).join('');
+}
+
+function renderSoiree(date) {
+  const n = state.raids?.nights?.find((x) => x.date === date);
+  if (!n) { $app.innerHTML = '<p class="muted">Soirée introuvable. <a href="#/soirees">Retour</a></p>'; return; }
+  const byName = new Map(state.data.characters.map((c) => [c.name, c]));
+  const players = [...n.players].sort((a, b) => (b.bestParse ?? -1) - (a.bestParse ?? -1));
+  $app.innerHTML = `
+    <p><a href="#/soirees" class="small">← Toutes les soirées</a></p>
+    <div class="toolbar"><div>
+      <h2 class="section-title" style="margin:0;text-transform:capitalize">${esc(fmtDate(n.date))}</h2>
+      <span class="muted">${esc(n.zone || '')} · ${n.kills.map((k) => esc(k.name)).join(', ') || 'aucun kill'} · ${n.wipes} wipes · ${n.pulls} pulls</span>
+    </div><span style="flex:1"></span><a class="btn" href="${esc(n.url)}" target="_blank" rel="noopener">Voir le log</a></div>
+
+    <div class="section-title">🌟 Hall of Fame</div>
+    <div class="hall-grid">${hallCards(n.fame, 'fame')}</div>
+    <div class="section-title">🙈 Hall of Shame</div>
+    <div class="hall-grid">${hallCards(n.shame, 'shame') || '<p class="muted">Rien à signaler, soirée parfaite.</p>'}</div>
+    <p class="small">Pour le fun ! Un joueur peut demander à être retiré du Hall of Shame (config.json → wcl.shameOptOut).</p>
+
+    <div class="section-title">Détail par joueur</div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Joueur</th><th>Pulls</th><th>Meilleur parse</th><th>Parse moyen</th><th>DPS / HPS</th><th>Morts</th><th>1er mort</th><th>Interrupts</th><th>Sans flacon</th><th>Sans food</th></tr></thead>
+      <tbody class="rows">${players.map((p) => {
+        const c = byName.get(p.name);
+        return `<tr ${c ? `data-href="${charUrl(c)}"` : ''}>
+          <td>${c ? charCell(c) : `<b>${esc(p.name)}</b>`}</td>
+          <td class="num">${p.pulls}</td>
+          <td class="num">${parseCell(p.bestParse)}</td>
+          <td class="num">${parseCell(p.avgParse)}</td>
+          <td class="num">${p.hps > p.dps ? `${fmtNum(p.hps)} <span class="small">HPS</span>` : p.dps ? fmtNum(p.dps) : '—'}</td>
+          <td class="num">${p.deaths}</td><td class="num">${p.firstDeaths || ''}</td><td class="num">${p.interrupts || ''}</td>
+          <td class="num">${p.noFlask ? `<span style="color:var(--warn)">${p.noFlask}</span>` : ''}</td>
+          <td class="num">${p.noFood ? `<span style="color:var(--warn)">${p.noFood}</span>` : ''}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table></div>`;
 }
 
 // ---------- Alertes ----------
@@ -269,6 +363,10 @@ function renderPerso(realm, name) {
         <p>Score M+ : ${scoreCell(c)}${(state.data.raids || []).map((r) => c.rio.raids?.[r.slug]?.summary ? ` · ${esc(r.name)} <b>${esc(c.rio.raids[r.slug].summary)}</b>` : '').join('')}</p>
         ${c.rio.bestRuns.length ? `<div class="runs">${c.rio.bestRuns.map((r) => `<span class="run" title="${esc(r.dungeon)}"><b>+${r.level}</b>${'★'.repeat(r.upgrades)} ${esc(r.short)}</span>`).join('')}</div>` : ''}` : ''}
 
+        ${c.wcl?.parses ? `<div class="section-title">Warcraft Logs</div>
+        <p>Parse moyen ${parseCell(c.wcl.parses.best)} · médian ${parseCell(c.wcl.parses.median)}${c.wcl.attendance ? ` · ${c.wcl.attendance.nights} soirée${c.wcl.attendance.nights > 1 ? 's' : ''} de raid loggée${c.wcl.attendance.nights > 1 ? 's' : ''}` : ''}</p>
+        <div class="runs">${c.wcl.parses.bosses.map((b) => `<span class="run">${parseCell(b.best)} ${esc(b.name)}</span>`).join('')}</div>` : ''}
+
         ${c.alts?.length ? `<div class="section-title">${c.isMain ? 'Rerolls' : `Compte de ${esc(c.main)}`}</div>
         <p>${c.alts.map((a) => {
           const d = findChar(a.name, a.realm);
@@ -303,15 +401,23 @@ function renderPerso(realm, name) {
   window.$WowheadPower?.refreshLinks?.();
 }
 
+// Clic sur une ligne de tableau → fiche du perso.
+document.addEventListener('click', (e) => {
+  const tr = e.target.closest('tbody.rows tr[data-href]');
+  if (tr && !e.target.closest('a')) location.hash = tr.dataset.href;
+});
+
 // ---------- Routage ----------
 function route() {
   if (!state.data) return;
   const parts = location.hash.replace(/^#\/?/, '').split('/');
   const tab = parts[0] || 'membres';
-  document.querySelectorAll('.tabs a').forEach((a) => a.classList.toggle('active', a.dataset.tab === tab));
+  document.querySelectorAll('.tabs a').forEach((a) => a.classList.toggle('active', a.dataset.tab === (tab === 'soiree' ? 'soirees' : tab)));
   window.scrollTo(0, 0);
   if (tab === 'alertes') renderAlertes();
   else if (tab === 'classement') renderClassement();
+  else if (tab === 'soirees') renderSoirees();
+  else if (tab === 'soiree') renderSoiree(parts[1]);
   else if (tab === 'metiers') renderMetiers();
   else if (tab === 'perso') renderPerso(parts[1], parts[2]);
   else renderMembres();
@@ -320,5 +426,11 @@ function route() {
 window.addEventListener('hashchange', route);
 fetch('data/guild.json', { cache: 'no-cache' })
   .then((r) => r.json())
-  .then((d) => { state.data = d; renderKpis(); route(); })
+  .then(async (d) => {
+    state.data = d;
+    // Les soirées sont dans un fichier à part ; le site fonctionne sans.
+    state.raids = await fetch('data/raids.json', { cache: 'no-cache' }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    renderKpis();
+    route();
+  })
   .catch(() => { $app.innerHTML = '<p class="muted">Données introuvables. Lance <code>node scripts/sync.mjs</code>.</p>'; });

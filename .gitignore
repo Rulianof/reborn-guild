@@ -2,3 +2,4 @@
 node_modules/
 site/data/
 .claude/
+cache/

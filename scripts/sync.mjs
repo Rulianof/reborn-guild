@@ -4,6 +4,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { ROOT, config, env } from './common.mjs';
 import { currentRaids, guildProgression, characterData } from './raiderio.mjs';
+import { syncWcl } from './wcl.mjs';
 
 const BLIZZARD_CLIENT_ID = env('BLIZZARD_CLIENT_ID');
 const BLIZZARD_CLIENT_SECRET = env('BLIZZARD_CLIENT_SECRET');
@@ -179,8 +180,10 @@ function groupAccounts(rosterMembers, summaries, characters) {
   for (const [root, members] of groups) {
     const playable = members.map((m) => detailed.get(m.id)).filter(Boolean);
     if (!playable.length) continue;
+    // Main : forcé dans la config, sinon le plus joué en raid (Warcraft Logs), sinon le meilleur ilvl.
+    const raidPulls = (c) => c.wcl?.attendance?.pulls || 0;
     const main = playable.find((c) => forced.has(key(c.name)))
-      || [...playable].sort((a, b) => (b.ilvl || 0) - (a.ilvl || 0) || (b.lastLogin || 0) - (a.lastLogin || 0))[0];
+      || [...playable].sort((a, b) => raidPulls(b) - raidPulls(a) || (b.ilvl || 0) - (a.ilvl || 0) || (b.lastLogin || 0) - (a.lastLogin || 0))[0];
     for (const c of playable) {
       c.account = root;
       c.isMain = c === main;
@@ -219,6 +222,22 @@ async function main() {
   });
   console.log(`Raider.IO : ${raids.length} raids en cours, ${rioOk} persos.`);
 
+  let wcl;
+  try {
+    wcl = await syncWcl(characters);
+  } catch (e) {
+    wcl = { status: 'error', message: e.message };
+  }
+  if (wcl.status === 'ok') {
+    for (const c of characters) c.wcl = { parses: wcl.parses[c.name] ?? null, attendance: wcl.attendance[c.name] ?? null };
+    console.log(`Warcraft Logs : ${wcl.totalNights} soirées, ${Object.keys(wcl.parses).length} persos avec des parses.`);
+  } else {
+    console.log(`Warcraft Logs ignoré (${wcl.status === 'no-key' ? 'pas de clé' : wcl.message}).`);
+  }
+  writeFileSync(join(ROOT, 'site/data/raids.json'), JSON.stringify({
+    generatedAt: new Date().toISOString(), status: wcl.status, nights: wcl.nights || [],
+  }));
+
   const accounts = groupAccounts(roster.members, summaries, characters);
   console.log(`${accounts} comptes détectés pour ${characters.length} persos.`);
 
@@ -235,9 +254,10 @@ async function main() {
   const data = {
     generatedAt: new Date().toISOString(),
     guild: { name: roster.guild.name, realm: roster.guild.realm.name, faction: roster.guild.faction?.name, memberCount: roster.members.length },
-    config: { niveauMin: config.niveauMin, joursInactif: config.joursInactif, rangs: config.rangs },
+    config: { niveauMin: config.niveauMin, joursInactif: config.joursInactif, rangs: config.rangs, semainesWcl: config.wcl.semaines },
     raids,
     progression,
+    wclStatus: wcl.status,
     enchantStats: stats,
     characters,
   };

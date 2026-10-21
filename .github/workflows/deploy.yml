@@ -25,11 +25,19 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      - name: Synchro Blizzard
+      # Garde les rapports Warcraft Logs déjà analysés d'une synchro à l'autre.
+      - uses: actions/cache@v4
+        with:
+          path: cache
+          key: wcl-${{ github.run_id }}
+          restore-keys: wcl-
+      - name: Synchro Blizzard, Raider.IO et Warcraft Logs
         run: node scripts/sync.mjs
         env:
           BLIZZARD_CLIENT_ID: ${{ secrets.BLIZZARD_CLIENT_ID }}
           BLIZZARD_CLIENT_SECRET: ${{ secrets.BLIZZARD_CLIENT_SECRET }}
+          WCL_CLIENT_ID: ${{ secrets.WCL_CLIENT_ID }}
+          WCL_CLIENT_SECRET: ${{ secrets.WCL_CLIENT_SECRET }}
       - uses: actions/upload-pages-artifact@v4
         with:
           path: site
