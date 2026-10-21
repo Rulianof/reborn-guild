@@ -234,6 +234,7 @@ async function main() {
   } else {
     console.log(`Warcraft Logs ignoré (${wcl.status === 'no-key' ? 'pas de clé' : wcl.message}).`);
   }
+  mkdirSync(join(ROOT, 'site/data'), { recursive: true });
   writeFileSync(join(ROOT, 'site/data/raids.json'), JSON.stringify({
     generatedAt: new Date().toISOString(), status: wcl.status, nights: wcl.nights || [],
   }));
@@ -261,7 +262,6 @@ async function main() {
     enchantStats: stats,
     characters,
   };
-  mkdirSync(join(ROOT, 'site/data'), { recursive: true });
   writeFileSync(join(ROOT, 'site/data/guild.json'), JSON.stringify(data));
 
   const missing = characters.filter((c) => c.found).length;
