@@ -106,14 +106,15 @@ function checks(items) {
   return { missingEnchants, emptySockets };
 }
 
-async function fetchCharacter(m) {
+const charPath = (m) => `/profile/wow/character/${m.character.realm.slug}/${encodeURIComponent(m.character.name.toLowerCase())}`;
+
+// Détails complets, seulement pour les persos au niveau requis.
+async function fetchCharacter(m, summary) {
   const realm = m.character.realm.slug;
-  const name = m.character.name.toLowerCase();
-  const base = `/profile/wow/character/${realm}/${encodeURIComponent(name)}`;
-  const [summary, equip, specs, profs, media] = await Promise.all([
-    api(base), api(`${base}/equipment`), api(`${base}/specializations`),
-    api(`${base}/professions`), api(`${base}/character-media`),
-  ]);
+  const base = charPath(m);
+  const [equip, specs, profs, media] = summary
+    ? await Promise.all([api(`${base}/equipment`), api(`${base}/specializations`), api(`${base}/professions`), api(`${base}/character-media`)])
+    : [];
   const char = {
     name: m.character.name,
     realm,
@@ -139,6 +140,7 @@ async function fetchCharacter(m) {
     talentCode: activeLoadout?.talent_loadout_code ?? null,
     ilvl: summary.equipped_item_level ?? 0,
     lastLogin: summary.last_login_timestamp ?? null,
+    achievementPoints: summary.achievement_points ?? 0,
     avatar: asset('avatar'),
     render: asset('main-raw'),
     professions: (profs?.primaries || []).map((p) => {
@@ -154,21 +156,72 @@ async function fetchCharacter(m) {
   };
 }
 
+// Regroupe les persos d'un même compte. Les hauts faits sont partagés par compte (bataillon),
+// donc des points identiques désignent presque toujours le même joueur.
+// config.comptes : { "reroll": "main" } rattache à la main ; config.mains : force le main d'un groupe.
+function groupAccounts(rosterMembers, summaries, characters) {
+  const key = (name) => name.toLowerCase();
+  const parent = new Map();
+  const find = (x) => (parent.get(x) === x ? x : (parent.set(x, find(parent.get(x))), parent.get(x)));
+  const union = (a, b) => { if (parent.has(a) && parent.has(b)) parent.set(find(a), find(b)); };
+
+  const all = rosterMembers.map((m, i) => ({
+    id: key(m.character.name), name: m.character.name, realm: m.character.realm.slug,
+    level: m.character.level, classId: m.character.playable_class.id, points: summaries[i]?.achievement_points ?? 0,
+  }));
+  for (const c of all) parent.set(c.id, c.id);
+  const byPoints = new Map();
+  for (const c of all) {
+    if (!c.points) continue;
+    if (byPoints.has(c.points)) union(c.id, byPoints.get(c.points));
+    else byPoints.set(c.points, c.id);
+  }
+  for (const [alt, main] of Object.entries(config.comptes || {})) union(key(alt), key(main));
+
+  const groups = new Map();
+  for (const c of all) {
+    const root = find(c.id);
+    if (!groups.has(root)) groups.set(root, []);
+    groups.get(root).push(c);
+  }
+  const forced = new Set((config.mains || []).map(key));
+  const detailed = new Map(characters.map((c) => [key(c.name), c]));
+
+  for (const [root, members] of groups) {
+    const playable = members.map((m) => detailed.get(m.id)).filter(Boolean);
+    if (!playable.length) continue;
+    const main = playable.find((c) => forced.has(key(c.name)))
+      || [...playable].sort((a, b) => (b.ilvl || 0) - (a.ilvl || 0) || (b.lastLogin || 0) - (a.lastLogin || 0))[0];
+    for (const c of playable) {
+      c.account = root;
+      c.isMain = c === main;
+      c.main = main.name;
+      c.alts = members.filter((m) => m.id !== key(c.name)).map(({ name, realm, level, classId }) => ({ name, realm, level, classId }));
+    }
+  }
+  return new Set(characters.map((c) => c.account)).size;
+}
+
 async function main() {
   token = await getToken();
   const guildSlug = encodeURIComponent(config.guild.toLowerCase());
   const roster = await api(`/data/wow/guild/${config.realm}/${guildSlug}/roster`);
   if (!roster) throw new Error('Roster introuvable : vérifie realm/guild dans config.json');
 
-  const members = roster.members.filter((m) => m.character.level >= config.niveauMin);
-  console.log(`${roster.members.length} membres, ${members.length} au niveau ${config.niveauMin}+ → synchronisation…`);
+  console.log(`${roster.members.length} membres → profils…`);
+  const summaries = await pool(roster.members, 10, (m) => api(charPath(m)));
 
+  const members = roster.members.map((m, i) => [m, summaries[i]]).filter(([m]) => m.character.level >= config.niveauMin);
+  console.log(`${members.length} au niveau ${config.niveauMin}+ → détails…`);
   let done = 0;
-  const characters = await pool(members, 8, async (m) => {
-    const c = await fetchCharacter(m);
+  const characters = await pool(members, 8, async ([m, summary]) => {
+    const c = await fetchCharacter(m, summary);
     if (++done % 25 === 0) console.log(`  ${done}/${members.length}`);
     return c;
   });
+
+  const accounts = groupAccounts(roster.members, summaries, characters);
+  console.log(`${accounts} comptes détectés pour ${characters.length} persos.`);
 
   // Statistiques d'enchantement par emplacement : utile pour valider config.slotsEnchantables.
   const stats = {};

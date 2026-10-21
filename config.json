@@ -6,16 +6,20 @@
   "niveauMin": 90,
   "joursInactif": 30,
   "rangs": {
-    "0": "Maître de guilde",
+    "0": "Chef de guilde",
     "1": "Officier",
-    "2": "Rang 2",
-    "3": "Rang 3",
-    "4": "Rang 4",
-    "5": "Rang 5",
-    "6": "Rang 6",
+    "2": "Fashion victime",
+    "3": "Vétéran",
+    "4": "Membre",
+    "5": "Dodo",
+    "6": "Nouveaux né",
     "7": "Rang 7",
     "8": "Rang 8",
     "9": "Rang 9"
   },
+  "_comptes": "Rattache un reroll à son main quand la détection auto se trompe : \"Reroll\": \"Main\"",
+  "comptes": {},
+  "_mains": "Force le main d'un compte (sinon : meilleur ilvl)",
+  "mains": [],
   "slotsEnchantables": ["HEAD", "SHOULDER", "CHEST", "LEGS", "FEET", "FINGER_1", "FINGER_2", "MAIN_HAND", "OFF_HAND"]
 }

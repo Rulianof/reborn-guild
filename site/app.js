@@ -4,7 +4,7 @@ const CLASS_COLORS = {
 };
 const DAY = 86400000;
 
-const state = { data: null, sort: { key: 'ilvl', dir: -1 }, q: '', cls: '', rank: '', inactifs: false };
+const state = { data: null, sort: { key: 'ilvl', dir: -1 }, q: '', cls: '', rank: '', inactifs: false, mainsOnly: true };
 const $app = document.getElementById('app');
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -32,21 +32,37 @@ function statusPill(c) {
 
 function charCell(c) {
   return `<div class="char">${c.avatar ? `<img src="${esc(c.avatar)}" alt="" loading="lazy">` : ''}
-    <div><b style="color:${color(c)}">${esc(c.name)}</b>${c.realm !== 'hyjal' ? `<div class="small">${esc(c.realm)}</div>` : ''}</div></div>`;
+    <div><b style="color:${color(c)}">${esc(c.name)}</b> ${altsChip(c)}${c.realm !== 'hyjal' ? `<div class="small">${esc(c.realm)}</div>` : ''}${rerollTag(c)}</div></div>`;
 }
 
-function visibleChars() {
-  return state.data.characters.filter((c) => state.inactifs || isActive(c));
+function visibleChars({ withAlts = false } = {}) {
+  return state.data.characters
+    .filter((c) => state.inactifs || isActive(c))
+    .filter((c) => withAlts || !state.mainsOnly || c.isMain !== false);
+}
+
+const findChar = (name, realm) => state.data.characters.find((x) => x.name === name && (!realm || x.realm === realm));
+const altsChip = (c) => (c.isMain && c.alts?.length ? `<span class="pill" title="${esc(c.alts.map((a) => a.name).join(', '))}">+${c.alts.length} reroll${c.alts.length > 1 ? 's' : ''}</span>` : '');
+const rerollTag = (c) => (c.isMain === false ? `<div class="small">reroll de ${esc(c.main)}</div>` : '');
+
+function filters({ mains = true } = {}) {
+  return `${mains ? `<label><input type="checkbox" id="mainsOnly" ${state.mainsOnly ? 'checked' : ''}> Mains uniquement</label>` : ''}
+    <label><input type="checkbox" id="inactifs" ${state.inactifs ? 'checked' : ''}> Inclure les inactifs (+${state.data.config.joursInactif} j)</label>`;
+}
+function bindFilters(redraw) {
+  const m = $app.querySelector('#mainsOnly'), i = $app.querySelector('#inactifs');
+  if (m) m.onchange = (e) => { state.mainsOnly = e.target.checked; redraw(); };
+  if (i) i.onchange = (e) => { state.inactifs = e.target.checked; redraw(); };
 }
 
 function renderKpis() {
   const d = state.data;
-  const active = d.characters.filter(isActive);
+  const active = d.characters.filter((c) => isActive(c) && c.isMain !== false);
   const avg = active.length ? Math.round(active.reduce((s, c) => s + (c.ilvl || 0), 0) / active.length) : 0;
   const clean = active.filter((c) => c.found && !issues(c)).length;
   document.getElementById('kpis').innerHTML = [
     [d.guild.memberCount, 'membres'],
-    [active.length, `actifs niv. ${d.config.niveauMin}`],
+    [active.length, 'joueurs actifs'],
     [avg, 'ilvl moyen'],
     [`${active.length ? Math.round((100 * clean) / active.length) : 0} %`, 'stuff complet'],
   ].map(([v, l]) => `<div class="kpi"><b>${v}</b><span>${l}</span></div>`).join('');
@@ -65,7 +81,7 @@ function renderMembres() {
       <input type="search" id="q" placeholder="Rechercher un perso…" value="${esc(state.q)}">
       <select id="cls"><option value="">Toutes les classes</option>${classes.map(([id, n]) => `<option value="${id}" ${state.cls == id ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>
       <select id="rank"><option value="">Tous les rangs</option>${ranks.map((r) => `<option value="${r}" ${state.rank === String(r) ? 'selected' : ''}>${esc(rankName(r))}</option>`).join('')}</select>
-      <label><input type="checkbox" id="inactifs" ${state.inactifs ? 'checked' : ''}> Inclure les inactifs (+${state.data.config.joursInactif} j)</label>
+      ${filters()}
     </div>
     <div class="table-wrap"><table>
       <thead><tr>
@@ -102,7 +118,7 @@ function renderMembres() {
   $app.querySelector('#q').oninput = (e) => { state.q = e.target.value; draw(); };
   $app.querySelector('#cls').onchange = (e) => { state.cls = e.target.value; draw(); };
   $app.querySelector('#rank').onchange = (e) => { state.rank = e.target.value; draw(); };
-  $app.querySelector('#inactifs').onchange = (e) => { state.inactifs = e.target.checked; draw(); };
+  bindFilters(draw);
   $app.querySelectorAll('th').forEach((th) => th.onclick = () => {
     const k = th.dataset.k;
     state.sort = { key: k, dir: state.sort.key === k ? -state.sort.dir : (k === 'name' || k === 'rank' ? 1 : -1) };
@@ -116,9 +132,9 @@ function renderAlertes() {
   const list = visibleChars().filter((c) => c.found && issues(c)).sort((a, b) => issues(b) - issues(a) || b.ilvl - a.ilvl);
   $app.innerHTML = `
     <div class="toolbar">
-      <span class="muted">${list.length} perso${list.length > 1 ? 's' : ''} avec un enchantement ou une gemme manquante${state.inactifs ? '' : ' (actifs uniquement)'}.</span>
+      <span class="muted">${list.length} perso${list.length > 1 ? 's' : ''} avec un enchantement ou une gemme manquante${state.inactifs ? '' : ' (actifs uniquement)'}${state.mainsOnly ? ', mains uniquement' : ''}.</span>
       <span style="flex:1"></span>
-      <label><input type="checkbox" id="inactifs" ${state.inactifs ? 'checked' : ''}> Inclure les inactifs</label>
+      ${filters()}
       <button class="btn gold" id="copy">Copier pour Discord</button>
     </div>
     <p class="small">⚠ L'armurerie Blizzard ne se met à jour qu'à la déconnexion : un enchant posé en jeu apparaît après un relog et la prochaine synchro.</p>
@@ -129,7 +145,7 @@ function renderAlertes() {
         ${c.emptySockets.length ? `<div class="sockets">Châsse vide : ${groupSlots(c.emptySockets).map(esc).join(', ')}</div>` : ''}
       </a>`).join('') || '<p class="muted">Tout le monde est enchanté. Incroyable.</p>'}
     </div>`;
-  $app.querySelector('#inactifs').onchange = (e) => { state.inactifs = e.target.checked; renderAlertes(); };
+  bindFilters(renderAlertes);
   $app.querySelector('#copy').onclick = async (e) => {
     const lines = list.map((c) => `• **${c.name}** — ${[
       c.missingEnchants.length && `enchant : ${c.missingEnchants.join(', ')}`,
@@ -145,19 +161,19 @@ function renderAlertes() {
 // ---------- Métiers ----------
 function renderMetiers() {
   const by = {};
-  for (const c of visibleChars()) for (const p of c.professions || []) (by[p.name] ??= []).push({ c, p });
+  for (const c of visibleChars({ withAlts: true })) for (const p of c.professions || []) (by[p.name] ??= []).push({ c, p });
   const names = Object.keys(by).sort((a, b) => a.localeCompare(b));
   $app.innerHTML = `
-    <div class="toolbar"><span class="muted">Métiers principaux, palier Midnight.</span><span style="flex:1"></span>
-      <label><input type="checkbox" id="inactifs" ${state.inactifs ? 'checked' : ''}> Inclure les inactifs</label></div>
+    <div class="toolbar"><span class="muted">Métiers principaux, palier Midnight. Les rerolls sont inclus.</span><span style="flex:1"></span>
+      ${filters({ mains: false })}</div>
     <div class="grid">${names.map((n) => `
       <div class="card"><h3>${esc(n)}<small>${by[n].length}</small></h3><ul>
         ${by[n].sort((a, b) => b.p.skill - a.p.skill).map(({ c, p }) => `
-          <li><a href="${charUrl(c)}" style="color:${color(c)}">${esc(c.name)}</a>
+          <li><span><a href="${charUrl(c)}" style="color:${color(c)}">${esc(c.name)}</a>${c.isMain === false ? ` <span class="small">(${esc(c.main)})</span>` : ''}</span>
           <span class="${p.skill >= p.max ? 'pill ok' : 'small'}">${p.skill}/${p.max}</span></li>`).join('')}
       </ul></div>`).join('')}
     </div>`;
-  $app.querySelector('#inactifs').onchange = (e) => { state.inactifs = e.target.checked; renderMetiers(); };
+  bindFilters(renderMetiers);
 }
 
 // ---------- Fiche perso ----------
@@ -199,6 +215,14 @@ function renderPerso(realm, name) {
             <button class="btn" id="copy-talents">Copier le code</button>
             <a class="btn" target="_blank" rel="noopener" href="https://www.wowhead.com/fr/talent-calc/blizzard/${esc(c.talentCode)}">Voir sur Wowhead</a>
           </div>` : '<p class="muted">Pas de talents disponibles.</p>'}
+
+        ${c.alts?.length ? `<div class="section-title">${c.isMain ? 'Rerolls' : `Compte de ${esc(c.main)}`}</div>
+        <p>${c.alts.map((a) => {
+          const d = findChar(a.name, a.realm);
+          const label = `<span style="color:${CLASS_COLORS[a.classId] || '#ccc'}">${esc(a.name)}</span> <span class="small">niv. ${a.level}${d?.ilvl ? ` · ${d.ilvl}` : ''}${d?.isMain ? ' · main' : ''}</span>`;
+          return d ? `<a href="${charUrl(d)}" style="text-decoration:none">${label}</a>` : label;
+        }).join(' · ')}</p>
+        <p class="small">Regroupement automatique par points de hauts faits (partagés par compte). Une erreur ? Corrige-la dans <code>config.json</code>.</p>` : ''}
 
         <div class="section-title">Métiers</div>
         <p>${(c.professions || []).map((p) => `${esc(p.name)} <span class="small">${p.skill}/${p.max}</span>`).join(' · ') || '<span class="muted">Aucun</span>'}
