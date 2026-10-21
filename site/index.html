@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rebõrn · Hyjal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script>const whTooltips = { colorLinks: false, iconizeLinks: false, renameLinks: false };</script>
+  <script src="https://wow.zamimg.com/js/tooltips.js" defer></script>
+</head>
+<body>
+  <header class="hero">
+    <div class="wrap">
+      <a href="#/" class="brand">
+        <h1>Rebõrn</h1>
+        <p id="guild-sub">Hyjal · EU</p>
+      </a>
+      <div class="kpis" id="kpis"></div>
+    </div>
+    <nav class="wrap tabs">
+      <a href="#/" data-tab="membres">Membres</a>
+      <a href="#/alertes" data-tab="alertes">Alertes enchant</a>
+      <a href="#/metiers" data-tab="metiers">Métiers</a>
+    </nav>
+  </header>
+
+  <main class="wrap" id="app"><p class="muted">Chargement…</p></main>
+
+  <footer class="wrap muted">
+    <span id="updated"></span> · Données : API Blizzard. Site de fans non officiel.
+  </footer>
+  <script src="app.js"></script>
+</body>
+</html>

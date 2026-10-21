@@ -1,0 +1,21 @@
+{
+  "region": "eu",
+  "locale": "fr_FR",
+  "realm": "hyjal",
+  "guild": "rebõrn",
+  "niveauMin": 90,
+  "joursInactif": 30,
+  "rangs": {
+    "0": "Maître de guilde",
+    "1": "Officier",
+    "2": "Rang 2",
+    "3": "Rang 3",
+    "4": "Rang 4",
+    "5": "Rang 5",
+    "6": "Rang 6",
+    "7": "Rang 7",
+    "8": "Rang 8",
+    "9": "Rang 9"
+  },
+  "slotsEnchantables": ["HEAD", "SHOULDER", "CHEST", "LEGS", "FEET", "FINGER_1", "FINGER_2", "MAIN_HAND", "OFF_HAND"]
+}
