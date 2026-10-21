@@ -1,0 +1,74 @@
+/* Portrait animé (voir portrait-fx.js). Pour désactiver : retirer ce fichier et portrait-fx.js de index.html. */
+.portrait.pfx { cursor: pointer; perspective: 900px; isolation: isolate; user-select: none; }
+.portrait.pfx::before {
+  content: ''; position: absolute; inset: 15% 10% 5%; z-index: -1; border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--pfx-color) 70%, transparent), transparent);
+  filter: blur(20px); animation: pfx-aura 4s ease-in-out infinite;
+}
+.portrait.pfx img {
+  transform: rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+  transition: transform .25s ease-out;
+  animation: pfx-breathe 4s ease-in-out infinite;
+  transform-origin: 50% 90%;
+}
+@keyframes pfx-breathe { 0%, 100% { scale: 1; translate: 0 0; } 50% { scale: 1.012; translate: 0 -3px; } }
+@keyframes pfx-aura { 0%, 100% { opacity: .6; } 50% { opacity: 1; } }
+
+/* Attaque : bond vers l'avant + tremblement */
+.portrait.pfx-lunge img { animation: pfx-lunge .35s ease-out, pfx-breathe 4s ease-in-out .35s infinite; }
+@keyframes pfx-lunge { 30% { scale: 1.06; translate: 0 -6px; } 100% { scale: 1; translate: 0 0; } }
+.portrait.pfx-shake { animation: pfx-shake .3s linear; }
+@keyframes pfx-shake { 20% { translate: -4px 2px; } 40% { translate: 4px -2px; } 60% { translate: -3px -1px; } 80% { translate: 2px 1px; } }
+.portrait.pfx-hop img { animation: pfx-hop .5s ease-out, pfx-breathe 4s ease-in-out .5s infinite; }
+@keyframes pfx-hop { 40% { translate: 0 -14px; } 70% { translate: 0 2px; } }
+
+/* Effets */
+.pfx-slash {
+  position: absolute; left: 20%; top: 25%; width: 60%; height: 40%; pointer-events: none;
+  border-top: 6px solid var(--pfx-color); border-radius: 50%;
+  filter: drop-shadow(0 0 8px var(--pfx-color)); rotate: -25deg;
+  animation: pfx-slash .35s ease-out forwards;
+}
+.pfx-slash-2 { rotate: 155deg; top: 35%; }
+@keyframes pfx-slash { 0% { opacity: 0; clip-path: inset(0 100% 0 0); } 30% { opacity: 1; } 100% { opacity: 0; clip-path: inset(0 0 0 0); scale: 1.15; } }
+
+.pfx-bolt {
+  position: absolute; right: 8%; top: 38%; font-size: 40px; pointer-events: none;
+  filter: drop-shadow(0 0 10px var(--pfx-color)); animation: pfx-bolt .4s ease-in forwards;
+}
+@keyframes pfx-bolt { from { translate: 0 0; scale: .6; opacity: 1; } to { translate: -180px -20px; scale: 1.2; opacity: .9; } }
+.pfx-burst {
+  position: absolute; left: 35%; top: 30%; font-size: 64px; pointer-events: none;
+  color: var(--pfx-color); filter: drop-shadow(0 0 16px var(--pfx-color)); animation: pfx-burst .5s ease-out forwards;
+}
+@keyframes pfx-burst { from { scale: .3; opacity: 1; } to { scale: 1.8; opacity: 0; } }
+
+.pfx-heal {
+  position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(circle at 50% 60%, #4fbf7255, transparent 60%); animation: pfx-heal .9s ease-out forwards;
+}
+@keyframes pfx-heal { from { opacity: 0; scale: .8; } 30% { opacity: 1; } to { opacity: 0; scale: 1.2; } }
+
+.pfx-num {
+  position: absolute; pointer-events: none; font: 800 26px/1 Inter, sans-serif; white-space: nowrap;
+  text-shadow: 0 2px 0 #000, 0 0 6px #000; animation: pfx-num 1.2s ease-out forwards;
+}
+.pfx-num.dmg { color: #fff; }
+.pfx-num.crit { color: #ffd23f; font-size: 34px; }
+.pfx-num.heal { color: #4fdf82; }
+@keyframes pfx-num { 0% { opacity: 0; translate: 0 10px; scale: .7; } 15% { opacity: 1; scale: 1.15; } 30% { scale: 1; } 100% { opacity: 0; translate: 0 -70px; } }
+
+.pfx-spell, .pfx-hint, .pfx-bubble { position: absolute; left: 50%; translate: -50% 0; pointer-events: none; white-space: nowrap; }
+.pfx-spell { bottom: 14px; font: 600 14px Cinzel, serif; color: var(--gold); text-shadow: 0 1px 4px #000; animation: pfx-fade 1.4s ease-out forwards; }
+.pfx-hint { bottom: 12px; font-size: 12px; color: var(--muted); background: #0009; padding: 3px 10px; border-radius: 99px; animation: pfx-fade 4s ease-in forwards; }
+.pfx-bubble {
+  top: 10%; background: #fff; color: #111; font-weight: 700; padding: 6px 12px; border-radius: 14px;
+  box-shadow: 0 4px 14px #0008; animation: pfx-bubble 1.8s ease-out forwards;
+}
+.pfx-bubble::after { content: ''; position: absolute; left: 50%; bottom: -8px; border: 8px solid transparent; border-top-color: #fff; border-bottom: 0; translate: -50% 0; }
+@keyframes pfx-fade { 0%, 60% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes pfx-bubble { 0% { opacity: 0; scale: .6; } 12% { opacity: 1; scale: 1.05; } 20% { scale: 1; } 80% { opacity: 1; } 100% { opacity: 0; translate: -50% -10px; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .portrait.pfx img, .portrait.pfx::before { animation: none; }
+}
