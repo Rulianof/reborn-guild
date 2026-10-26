@@ -189,17 +189,17 @@ function parsesTable() {
   const nights = state.raids?.nights?.length || 0;
   return `<h2 class="section-title" style="margin-top:28px">Classement des parses</h2>
     <div class="table-wrap"><table>
-      <thead><tr><th>#</th><th>Perso</th><th>Spé</th><th>Parse moyen (meilleurs)</th><th>Parse médian</th><th>Boss loggés</th><th>Présence</th></tr></thead>
+      <thead><tr><th>#</th><th>Perso</th><th>Spé</th><th>Parse moyen</th><th>Parse médian</th><th>Boss tués</th><th>Présence</th></tr></thead>
       <tbody class="rows">${list.map((c, i) => `<tr data-href="${charUrl(c)}">
         <td class="num">${['🥇', '🥈', '🥉'][i] || `<span class="muted">${i + 1}</span>`}</td>
         <td>${charCell(c)}</td><td>${esc(c.spec ?? '—')}</td>
-        <td class="num">${parseCell(c.wcl.parses.best)}</td>
+        <td class="num">${parseCell(c.wcl.parses.best)} <span class="small">${c.wcl.parses.metric === 'hps' ? 'HPS' : 'DPS'}</span></td>
         <td class="num">${parseCell(c.wcl.parses.median)}</td>
         <td class="num">${c.wcl.parses.bosses.length}</td>
         <td class="num">${nights ? `${c.wcl.attendance?.nights || 0}/${nights}` : '—'}</td>
       </tr>`).join('')}</tbody>
     </table></div>
-    <p class="small">Parses Warcraft Logs de la zone en cours. Présence : soirées de raid loggées sur les ${state.data.config.semainesWcl || 4} dernières semaines.</p>`;
+    <p class="small">Calculé sur les raids de la guilde des ${state.data.config.semainesWcl || 4} dernières semaines : parse moyen = moyenne du meilleur parse sur chaque boss tué ; médiane = de tous les parses. Soigneurs classés en HPS.</p>`;
 }
 
 // ---------- Soirées (Warcraft Logs) ----------
@@ -219,7 +219,7 @@ function renderSoirees() {
       const mvp = n.fame.find((f) => f.id === 'parse');
       const shame = n.shame.find((f) => f.id === 'floor');
       return `<a class="card night" href="#/soiree/${n.date}" style="text-decoration:none">
-        <h3 style="text-transform:capitalize">${esc(fmtDate(n.date))}<small>${n.players.length} joueurs</small></h3>
+        <h3 style="text-transform:capitalize">${esc(fmtDate(n.date))}<small>${n.players.filter((p) => !p.guest).length} de la guilde</small></h3>
         <p class="muted" style="margin:0 0 8px">${esc(n.zone || '')} · ${n.kills.length} boss tués · ${n.wipes} wipe${n.wipes > 1 ? 's' : ''}</p>
         ${mvp ? `<div>🏆 <b>${esc(mvp.name)}</b> <span class="small">${mvp.value}% sur ${esc(mvp.detail || '')}</span></div>` : ''}
         ${shame ? `<div>💀 <b>${esc(shame.name)}</b> <span class="small">${shame.value} morts</span></div>` : ''}
@@ -251,20 +251,24 @@ function renderSoiree(date) {
     <div class="hall-grid">${hallCards(n.fame, 'fame')}</div>
     <div class="section-title">🙈 Hall of Shame</div>
     <div class="hall-grid">${hallCards(n.shame, 'shame') || '<p class="muted">Rien à signaler, soirée parfaite.</p>'}</div>
-    <p class="small">Pour le fun ! Un joueur peut demander à être retiré du Hall of Shame (config.json → wcl.shameOptOut).</p>
+    <p class="small">Pour le fun ! Un joueur peut demander à être retiré du Hall of Shame (config.json → wcl.shameOptOut). Sur un wipe, seules les 3 premières morts comptent.</p>
+
+    ${n.killers?.length ? `<div class="section-title">💀 Ce qui nous a tués</div>
+    <div class="card"><ul>${n.killers.map((k) => `<li><span>${esc(k.name)}</span><b>${k.count} mort${k.count > 1 ? 's' : ''}</b></li>`).join('')}</ul>
+    <p class="small" style="margin:8px 0 0">Coups fataux de la soirée (kills + 3 premières morts de chaque wipe).</p></div>` : ''}
 
     <div class="section-title">Détail par joueur</div>
     <div class="table-wrap"><table>
-      <thead><tr><th>Joueur</th><th>Pulls</th><th>Meilleur parse</th><th>Parse moyen</th><th>DPS / HPS</th><th>Morts</th><th>1er mort</th><th>Interrupts</th><th>Sans flacon</th><th>Sans food</th></tr></thead>
+      <thead><tr><th>Joueur</th><th>Pulls</th><th>Meilleur parse</th><th>Parse moyen</th><th>DPS / HPS</th><th>Morts</th><th>Souvent tué par</th><th>1er mort</th><th>Interrupts</th><th>Sans flacon</th><th>Sans food</th></tr></thead>
       <tbody class="rows">${players.map((p) => {
         const c = byName.get(p.name);
         return `<tr ${c ? `data-href="${charUrl(c)}"` : ''}>
-          <td>${c ? charCell(c) : `<b>${esc(p.name)}</b>`}</td>
+          <td>${c ? charCell(c) : `<b>${esc(p.name)}</b>`}${p.guest ? ' <span class="pill">invité</span>' : ''}</td>
           <td class="num">${p.pulls}</td>
           <td class="num">${parseCell(p.bestParse)}</td>
           <td class="num">${parseCell(p.avgParse)}</td>
           <td class="num">${p.hps > p.dps ? `${fmtNum(p.hps)} <span class="small">HPS</span>` : p.dps ? fmtNum(p.dps) : '—'}</td>
-          <td class="num">${p.deaths}</td><td class="num">${p.firstDeaths || ''}</td><td class="num">${p.interrupts || ''}</td>
+          <td class="num">${p.deaths}</td><td class="small">${p.topKiller ? `${esc(p.topKiller[0])} ×${p.topKiller[1]}` : ''}</td><td class="num">${p.firstDeaths || ''}</td><td class="num">${p.interrupts || ''}</td>
           <td class="num">${p.noFlask ? `<span style="color:var(--warn)">${p.noFlask}</span>` : ''}</td>
           <td class="num">${p.noFood ? `<span style="color:var(--warn)">${p.noFood}</span>` : ''}</td>
         </tr>`;
@@ -347,6 +351,7 @@ function conseils(c) {
   if (me) {
     if (me.noFlask) out.push({ lvl: 'warn', icon: '🧪', text: `${esc(fmtDate(night.date))} : pas de flacon sur <b>${me.noFlask} pull${me.noFlask > 1 ? 's' : ''}</b>.` });
     if (me.noFood) out.push({ lvl: 'warn', icon: '🍗', text: `${esc(fmtDate(night.date))} : pas de nourriture sur <b>${me.noFood} pull${me.noFood > 1 ? 's' : ''}</b>.` });
+    if (me.topKiller?.[1] >= 2) out.push({ lvl: 'warn', icon: '💀', text: `${esc(fmtDate(night.date))} : tué <b>${me.topKiller[1]} fois par ${esc(me.topKiller[0])}</b>. Renseigne-toi sur cette capacité (souvent évitable).` });
     if (me.firstDeaths >= 2) out.push({ lvl: 'warn', icon: '🪦', text: `${esc(fmtDate(night.date))} : premier mort sur <b>${me.firstDeaths} pulls</b>. Regarde ce qui t'a tué dans le log.` });
   }
   if (c.lastLogin && Date.now() - c.lastLogin > 7 * DAY) out.push({ lvl: 'info', icon: '🕒', text: `Ces infos datent de ta dernière déconnexion (${ago(c.lastLogin)}).` });
@@ -514,7 +519,7 @@ function renderPerso(realm, name) {
         ${c.vault ? `<div class="section-title">Coffre de la semaine</div>${vaultCard(c)}` : ''}
 
         ${c.wcl?.parses ? `<div class="section-title">Warcraft Logs</div>
-        <p>Parse moyen ${parseCell(c.wcl.parses.best)} · médian ${parseCell(c.wcl.parses.median)}${c.wcl.attendance ? ` · ${c.wcl.attendance.nights} soirée${c.wcl.attendance.nights > 1 ? 's' : ''} de raid loggée${c.wcl.attendance.nights > 1 ? 's' : ''}` : ''}</p>
+        <p>Parse moyen ${parseCell(c.wcl.parses.best)} <span class="small">${c.wcl.parses.metric === 'hps' ? 'HPS' : 'DPS'}</span> · médian ${parseCell(c.wcl.parses.median)}${c.wcl.attendance ? ` · ${c.wcl.attendance.nights} soirée${c.wcl.attendance.nights > 1 ? 's' : ''} de raid loggée${c.wcl.attendance.nights > 1 ? 's' : ''}` : ''}</p>
         <div class="runs">${c.wcl.parses.bosses.map((b) => `<span class="run">${parseCell(b.best)} ${esc(b.name)}</span>`).join('')}</div>` : ''}
 
         ${c.alts?.length ? `<div class="section-title">${c.isMain ? 'Rerolls' : `Compte de ${esc(c.main)}`}</div>

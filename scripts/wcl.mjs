@@ -1,13 +1,15 @@
 // Warcraft Logs (API v2 GraphQL) : soirées de raid, Hall of Fame / Hall of Shame, parses par perso.
 // Facultatif : sans clé ou si Warcraft Logs ne répond pas, la synchro continue sans ces données.
-// Les rapports déjà analysés sont gardés dans cache/wcl/ (restauré par GitHub Actions entre deux runs).
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+// Les rapports bruts (compressés) et analysés sont gardés dans cache/wcl/ (restauré par GitHub Actions
+// entre deux runs) : on peut recalculer l'historique sans consommer le quota de l'API.
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSync, unlinkSync } from 'node:fs';
+import { gzipSync, gunzipSync } from 'node:zlib';
 import { join } from 'node:path';
 import { ROOT, config, env } from './common.mjs';
 
 const WCL = 'https://www.warcraftlogs.com';
 const CACHE = join(ROOT, 'cache/wcl');
-const CACHE_VERSION = 1; // à incrémenter quand processReport change, pour recalculer les soirées
+const CACHE_VERSION = 3; // à incrémenter quand processReport change, pour recalculer les soirées
 const DAY = 86400000;
 
 let token;
@@ -54,7 +56,7 @@ async function fetchReport(code) {
   const base = await gql(`query($code: String!) { reportData { report(code: $code) {
     code title startTime endTime zone { id name }
     fights(killType: Encounters) { id encounterID name difficulty kill fightPercentage startTime endTime }
-    masterData { actors(type: "Player") { id name server subType } abilities { gameID name } }
+    masterData { actors(type: "Player") { id name server subType } }
   } } }`, { code });
   const report = base.reportData.report;
   const fightIDs = report.fights.map((f) => f.id);
@@ -77,28 +79,9 @@ async function fetchReport(code) {
   };
 }
 
-// Parses de la zone en cours pour une liste de persos, par lots (alias GraphQL).
-async function fetchZoneRankings(chars) {
-  const out = new Map();
-  for (let i = 0; i < chars.length; i += 10) {
-    const batch = chars.slice(i, i + 10);
-    const fields = batch.map((c, j) =>
-      `c${j}: character(name: ${JSON.stringify(c.name)}, serverSlug: ${JSON.stringify(c.realm)}, serverRegion: ${JSON.stringify(config.region)}) { zoneRankings(difficulty: ${config.wcl.difficulty}) }`).join('\n');
-    const data = await gql(`query { characterData { ${fields} } }`);
-    batch.forEach((c, j) => {
-      const z = json(data.characterData[`c${j}`]?.zoneRankings);
-      if (!z?.rankings) return;
-      out.set(c.name, {
-        best: round(z.bestPerformanceAverage),
-        median: round(z.medianPerformanceAverage),
-        zone: z.zone ?? null,
-        bosses: z.rankings.filter((r) => r.totalKills > 0).map((r) => ({
-          name: r.encounter?.name, best: round(r.rankPercent), median: round(r.medianPercent), kills: r.totalKills,
-        })),
-      });
-    });
-  }
-  return out;
+async function pointsLeft() {
+  const r = (await gql('{ rateLimitData { limitPerHour pointsSpentThisHour } }')).rateLimitData;
+  return r.limitPerHour - r.pointsSpentThisHour;
 }
 
 const round = (n) => (typeof n === 'number' ? Math.round(n * 10) / 10 : null);
@@ -121,16 +104,36 @@ function sumByPlayer(table, players) {
   return out;
 }
 
-export function processReport(raw) {
-  const fights = raw.fights || [];
-  const players = new Set((raw.masterData?.actors || []).map((a) => a.name));
+// guild : noms des persos de la guilde. On ne garde que les combats où ils sont au moins
+// config.wcl.partGuildeMin (par défaut la moitié) : ça écarte les raids outil ou les groupes extérieurs
+// loggés dans le même rapport. (Interrupts et dispels restent comptés sur tout le rapport.)
+export function processReport(raw, guild) {
   const actorById = new Map((raw.masterData?.actors || []).map((a) => [a.id, a]));
-  const abilityName = new Map((raw.masterData?.abilities || []).map((a) => [a.gameID, a.name]));
-  const t = raw.tables || {};
+  const t0 = raw.tables || {};
+  const share = config.wcl.partGuildeMin ?? 0.5;
+  const fightPlayers = new Map();
+  for (const ev of t0.combatants || []) {
+    const a = actorById.get(ev.sourceID);
+    if (!a) continue;
+    if (!fightPlayers.has(ev.fight)) fightPlayers.set(ev.fight, []);
+    fightPlayers.get(ev.fight).push(a.name);
+  }
+  const keep = new Set((raw.fights || []).filter((f) => {
+    const names = fightPlayers.get(f.id) || [];
+    return names.length && names.filter((n) => guild.has(n)).length / names.length >= share;
+  }).map((f) => f.id));
+  const fights = (raw.fights || []).filter((f) => keep.has(f.id));
+  const t = {
+    ...t0,
+    combatants: (t0.combatants || []).filter((ev) => keep.has(ev.fight)),
+    rankings: { data: (json(t0.rankings)?.data || []).filter((f) => keep.has(f.fightID)) },
+    deaths: { data: { entries: (t0.deaths?.data?.entries || t0.deaths?.entries || []).filter((d) => keep.has(d.fight)) } },
+  };
+  const players = new Set((raw.masterData?.actors || []).map((a) => a.name));
   const stats = {};
   const P = (name) => (stats[name] ??= {
     name, server: null, cls: null, pulls: 0, kills: 0, deaths: 0, firstDeaths: 0,
-    parses: [], dps: [], hps: [], interrupts: 0, dispels: 0, noFlask: 0, noFood: 0, checked: 0,
+    parses: [], dps: [], hps: [], roles: {}, killers: {}, interrupts: 0, dispels: 0, noFlask: 0, noFood: 0, checked: 0,
   });
 
   // Présence : qui figure dans les pulls (via CombatantInfo, un événement par joueur et par pull).
@@ -141,7 +144,7 @@ export function processReport(raw) {
     p.server = a.server; p.cls = a.subType;
     p.pulls++;
     if (fights.find((f) => f.id === ev.fight)?.kill) p.kills++;
-    const auras = (ev.auras || []).map((x) => abilityName.get(x.ability) || x.name || '');
+    const auras = (ev.auras || []).map((x) => x.name || '');
     if (auras.length) {
       p.checked++;
       if (!auras.some((n) => /flask|phial|flacon|fiole/i.test(n))) p.noFlask++;
@@ -156,34 +159,53 @@ export function processReport(raw) {
       for (const ch of list.characters || []) {
         const p = P(ch.name);
         p.cls ??= ch.class;
+        p.roles[role] = (p.roles[role] || 0) + 1;
         if (typeof ch.rankPercent === 'number') p.parses.push({ boss: fight.encounter?.name, pct: ch.rankPercent, spec: ch.spec });
         if (typeof ch.amount === 'number') (role === 'healers' ? p.hps : p.dps).push(ch.amount);
       }
     }
   }
 
-  // Morts, et premier mort de chaque pull.
-  const firstByFight = new Map();
+  // Morts : toutes celles des kills, et seulement les 3 premières de chaque wipe
+  // (après, le pull est perdu et les morts ne veulent plus dire grand-chose).
+  const byFight = new Map();
   for (const d of t.deaths?.data?.entries || t.deaths?.entries || []) {
     if (!players.has(d.name)) continue;
-    P(d.name).deaths++;
-    const fightId = d.fight ?? fights.find((f) => d.deathTime >= f.startTime && d.deathTime <= f.endTime)?.id;
+    const time = d.timestamp ?? d.deathTime ?? 0;
+    const fightId = d.fight ?? fights.find((f) => time >= f.startTime && time <= f.endTime)?.id;
     if (fightId == null) continue;
-    const prev = firstByFight.get(fightId);
-    if (!prev || d.deathTime < prev.deathTime) firstByFight.set(fightId, d);
+    if (!byFight.has(fightId)) byFight.set(fightId, []);
+    byFight.get(fightId).push({ name: d.name, time, killer: d.killingBlow?.name || null });
   }
-  for (const d of firstByFight.values()) P(d.name).firstDeaths++;
+  const killers = {};
+  for (const [fightId, list] of byFight) {
+    list.sort((a, b) => a.time - b.time);
+    const kill = fights.find((f) => f.id === fightId)?.kill;
+    const counted = kill ? list : list.slice(0, 3);
+    P(counted[0].name).firstDeaths++;
+    for (const d of counted) {
+      const p = P(d.name);
+      p.deaths++;
+      if (d.killer) {
+        p.killers[d.killer] = (p.killers[d.killer] || 0) + 1;
+        killers[d.killer] = (killers[d.killer] || 0) + 1;
+      }
+    }
+  }
 
   for (const [n, v] of Object.entries(sumByPlayer(t.interrupts, players))) P(n).interrupts = v;
   for (const [n, v] of Object.entries(sumByPlayer(t.dispels, players))) P(n).dispels = v;
 
   const avg = (a) => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : null);
-  const list = Object.values(stats).filter((p) => p.pulls || p.parses.length).map((p) => ({
-    name: p.name, server: p.server, cls: p.cls, pulls: p.pulls, kills: p.kills, deaths: p.deaths, firstDeaths: p.firstDeaths,
+  const list = Object.values(stats).filter((p) => p.pulls).map((p) => ({
+    name: p.name, guest: !guild.has(p.name), server: p.server, cls: p.cls, pulls: p.pulls, kills: p.kills, deaths: p.deaths, firstDeaths: p.firstDeaths,
     bestParse: p.parses.length ? Math.max(...p.parses.map((x) => x.pct)) : null,
     avgParse: round(avg(p.parses.map((x) => x.pct))),
     bestParseBoss: p.parses.sort((a, b) => b.pct - a.pct)[0]?.boss ?? null,
+    parses: p.parses.map((x) => ({ boss: x.boss, pct: x.pct })),
     dps: Math.round(avg(p.dps) || 0), hps: Math.round(avg(p.hps) || 0),
+    role: Object.entries(p.roles).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null,
+    topKiller: Object.entries(p.killers).sort((a, b) => b[1] - a[1])[0] ?? null,
     interrupts: p.interrupts, dispels: p.dispels,
     noFlask: p.noFlask, noFood: p.noFood, checked: p.checked,
   }));
@@ -194,6 +216,7 @@ export function processReport(raw) {
     pulls: fights.length,
     kills: fights.filter((f) => f.kill).map((f) => ({ name: f.name, difficulty: f.difficulty })),
     wipes: fights.filter((f) => !f.kill).length,
+    killers: Object.entries(killers).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, count]) => ({ name, count })),
     players: list,
   };
 }
@@ -207,7 +230,7 @@ const top = (players, key) => {
 };
 
 export function hallOf(night, optOut) {
-  const ps = night.players;
+  const ps = night.players.filter((p) => !p.guest);
   const shameable = ps.filter((p) => !optOut.has(p.name.toLowerCase()));
   const present = (p) => p.pulls >= Math.max(3, night.pulls / 2);
   const fame = [
@@ -232,21 +255,66 @@ export function hallOf(night, optOut) {
 
 const parisDate = (ts) => new Intl.DateTimeFormat('fr-CA', { timeZone: 'Europe/Paris' }).format(ts); // AAAA-MM-JJ
 
-export async function syncWcl(characters) {
+export async function syncWcl(characters, guildNames) {
   if (!(await auth())) return { status: 'no-key' };
   mkdirSync(CACHE, { recursive: true });
   const since = Date.now() - config.wcl.semaines * 7 * DAY;
-  const reports = (await listReports(since)).filter((r) => !config.wcl.zoneIds?.length || config.wcl.zoneIds.includes(r.zone?.id));
+  // Mode secours : si Warcraft Logs refuse (quota, panne), on repart des rapports déjà en cache.
+  // Les rapports d'une ancienne version du cache sont relus par leur code (requête qui ne coûte pas
+  // le même quota que la recherche des rapports de la guilde).
+  const cachedReports = () => readdirSync(CACHE).filter((f) => f.endsWith('.json') && f !== 'parses.json')
+    .map((f) => JSON.parse(readFileSync(join(CACHE, f), 'utf8')))
+    .filter((r) => r.code && r.startTime >= since)
+    .map(({ code, startTime, endTime }) => ({ code, startTime, endTime }));
+  let reports;
+  let offline = null;
+  try {
+    reports = (await listReports(since)).filter((r) => !config.wcl.zoneIds?.length || config.wcl.zoneIds.includes(r.zone?.id));
+  } catch (e) {
+    offline = e.message;
+    reports = cachedReports();
+    console.log(`Warcraft Logs indisponible (${e.message}) : ${reports.length} rapports du cache réutilisés.`);
+    if (!reports.length) throw e;
+  }
 
+  const RAW = join(CACHE, 'raw');
+  mkdirSync(RAW, { recursive: true });
   const processed = [];
   for (const r of reports) {
     const file = join(CACHE, `${r.code}.json`);
+    const rawFile = join(RAW, `${r.code}.json.gz`);
     const cached = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : null;
     // Un rapport encore « en cours » (fini il y a moins de 6 h) est rechargé à chaque synchro.
-    const fresh = cached?.v === CACHE_VERSION && cached.endTime === r.endTime && Date.now() - r.endTime > 6 * 3600000;
-    const rep = fresh ? cached : processReport(await fetchReport(r.code));
-    if (!fresh) writeFileSync(file, JSON.stringify(rep));
+    const done = Date.now() - r.endTime > 6 * 3600000;
+    let raw = done && existsSync(rawFile) ? JSON.parse(gunzipSync(readFileSync(rawFile))) : null;
+    if (raw?.endTime !== r.endTime) raw = null;
+    if (!raw) {
+      if ((await pointsLeft().catch(() => 0)) < 60) {
+        console.log(`Warcraft Logs : quota horaire atteint, ${r.code} sera importé à la prochaine synchro.`);
+        if (cached) processed.push(cached);
+        continue;
+      }
+      try {
+        raw = await fetchReport(r.code);
+      } catch (e) {
+        console.log(`Warcraft Logs : ${r.code} non importé (${e.message}), nouvel essai à la prochaine synchro.`);
+        if (cached) processed.push(cached);
+        continue;
+      }
+      writeFileSync(rawFile, gzipSync(JSON.stringify(raw)));
+    }
+    const rep = processReport(raw, guildNames);
+    writeFileSync(file, JSON.stringify(rep));
     processed.push(rep);
+  }
+  // Ménage : on oublie les rapports plus vieux que la période suivie.
+  for (const dir of [CACHE, RAW]) {
+    for (const f of readdirSync(dir)) {
+      const path = join(dir, f);
+      if (f.endsWith('.gz') || (f.endsWith('.json') && f !== 'parses.json')) {
+        if (Date.now() - statSync(path).mtimeMs > (config.wcl.semaines + 2) * 7 * DAY) unlinkSync(path);
+      }
+    }
   }
 
   // Une soirée = une date ; si plusieurs personnes ont loggé, on garde le rapport le plus complet.
@@ -270,9 +338,28 @@ export async function syncWcl(characters) {
     attendance[p.name].pulls += p.pulls;
   }
 
-  const DAYS30 = 30 * DAY;
-  const active = characters.filter((c) => c.found && c.lastLogin && Date.now() - c.lastLogin < DAYS30);
-  const parses = await fetchZoneRankings(active);
+  // Parses sur la période, calculés à partir des rapports de la guilde (aucune requête en plus) :
+  // meilleur parse par boss, moyenne de ces meilleurs parses, et médiane de tous les parses.
+  const perPlayer = {};
+  for (const n of nights) for (const p of n.players) {
+    const x = (perPlayer[p.name] ??= { all: [], bosses: {}, role: p.role });
+    for (const { boss, pct } of p.parses || []) {
+      x.all.push(pct);
+      const b = (x.bosses[boss] ??= { name: boss, best: 0, kills: 0 });
+      b.best = Math.max(b.best, pct);
+      b.kills++;
+    }
+  }
+  const median = (a) => { const s = [...a].sort((x, y) => x - y); return s.length ? (s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2) : null; };
+  const parses = Object.fromEntries(Object.entries(perPlayer).filter(([, x]) => x.all.length).map(([name, x]) => {
+    const bosses = Object.values(x.bosses);
+    return [name, {
+      metric: x.role === 'healers' ? 'hps' : 'dps',
+      best: round(bosses.reduce((s, b) => s + b.best, 0) / bosses.length),
+      median: round(median(x.all)),
+      bosses,
+    }];
+  }));
 
-  return { status: 'ok', nights, attendance, parses: Object.fromEntries(parses), totalNights: nights.length };
+  return { status: 'ok', offline, nights, attendance, parses, totalNights: nights.length };
 }

@@ -312,7 +312,7 @@ async function main() {
 
   let wcl;
   try {
-    wcl = await syncWcl(characters);
+    wcl = await syncWcl(characters, new Set(roster.members.map((m) => m.character.name)));
   } catch (e) {
     wcl = { status: 'error', message: e.message };
   }
