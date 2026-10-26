@@ -150,6 +150,17 @@ td.num { font-variant-numeric: tabular-nums; font-weight: 600; }
 .pick { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 10px; background: none; border: 0; border-bottom: 1px solid var(--line); color: inherit; font: inherit; padding: 8px 4px; cursor: pointer; text-align: left; }
 .pick:hover { background: var(--panel-2); }
 
+/* Favoris et vues */
+.fav { background: none; border: 0; padding: 0 2px; font-size: 18px; line-height: 1; color: var(--muted); cursor: pointer; }
+.fav:hover { color: var(--gold); }
+.fav.on { color: var(--gold); }
+.profile h2 .fav { font-size: 26px; vertical-align: middle; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { background: var(--panel); color: var(--muted); border: 0; padding: 7px 12px; font: inherit; font-weight: 600; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button.on { background: #d9b45a22; color: var(--gold); }
+.pill.raid { color: var(--gold); background: #d9b45a1a; }
+
 @media (max-width: 760px) {
   .brand h1 { font-size: 34px; }
   .profile { grid-template-columns: 1fr; }

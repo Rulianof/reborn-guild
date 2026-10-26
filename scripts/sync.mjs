@@ -322,6 +322,14 @@ async function main() {
   } else {
     console.log(`Warcraft Logs ignoré (${wcl.status === 'no-key' ? 'pas de clé' : wcl.message}).`);
   }
+  // Roster raid : présent à au moins config.roster.minSoirees soirées loggées, plus les ajouts/retraits manuels.
+  const { minSoirees = 2, inclus = [], exclus = [] } = config.roster || {};
+  const lower = (l) => new Set(l.map((n) => n.toLowerCase()));
+  const rosterIn = lower(inclus), rosterOut = lower(exclus);
+  for (const c of characters) {
+    const n = c.name.toLowerCase();
+    c.raider = !rosterOut.has(n) && (rosterIn.has(n) || (c.wcl?.attendance?.nights || 0) >= minSoirees);
+  }
   mkdirSync(join(ROOT, 'site/data'), { recursive: true });
   writeFileSync(join(ROOT, 'site/data/raids.json'), JSON.stringify({
     generatedAt: new Date().toISOString(), status: wcl.status, nights: wcl.nights || [],

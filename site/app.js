@@ -4,7 +4,7 @@ const CLASS_COLORS = {
 };
 const DAY = 86400000;
 
-const state = { data: null, raids: null, sort: { key: 'ilvl', dir: -1 }, q: '', cls: '', rank: '', inactifs: false, mainsOnly: true };
+const state = { data: null, raids: null, sort: { key: 'ilvl', dir: -1 }, q: '', cls: '', rank: '', inactifs: false, mainsOnly: true, view: 'tous' };
 const $app = document.getElementById('app');
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -38,14 +38,27 @@ function statusPill(c) {
 }
 
 function charCell(c) {
-  return `<div class="char">${c.avatar ? `<img src="${esc(c.avatar)}" alt="" loading="lazy">` : ''}
-    <div><b style="color:${color(c)}">${esc(c.name)}</b> ${altsChip(c)}${c.realm !== 'hyjal' ? `<div class="small">${esc(c.realm)}</div>` : ''}${rerollTag(c)}</div></div>`;
+  return `<div class="char">${favButton(c)}${c.avatar ? `<img src="${esc(c.avatar)}" alt="" loading="lazy">` : ''}
+    <div><b style="color:${color(c)}">${esc(c.name)}</b> ${c.raider ? '<span class="pill raid" title="Roster raid">⚔</span> ' : ''}${altsChip(c)}${c.realm !== 'hyjal' ? `<div class="small">${esc(c.realm)}</div>` : ''}${rerollTag(c)}</div></div>`;
 }
+
+// Favoris personnels (navigateur) et vue choisie : tous, roster raid ou favoris.
+const FAV_KEY = 'reborn.favoris';
+const favs = new Set((() => { try { return JSON.parse(localStorage.getItem(FAV_KEY) || '[]'); } catch { return []; } })());
+const favId = (c) => `${c.realm}/${c.name.toLowerCase()}`;
+const isFav = (c) => favs.has(favId(c));
+function toggleFav(id) {
+  favs.has(id) ? favs.delete(id) : favs.add(id);
+  try { localStorage.setItem(FAV_KEY, JSON.stringify([...favs])); } catch { /* navigation privée */ }
+}
+try { state.view = localStorage.getItem('reborn.vue') || 'tous'; } catch { /* idem */ }
+const favButton = (c) => `<button class="fav ${isFav(c) ? 'on' : ''}" data-fav="${esc(favId(c))}" title="${isFav(c) ? 'Retirer des favoris' : 'Ajouter aux favoris'}">${isFav(c) ? '★' : '☆'}</button>`;
 
 function visibleChars({ withAlts = false } = {}) {
   return state.data.characters
-    .filter((c) => state.inactifs || isActive(c))
-    .filter((c) => withAlts || !state.mainsOnly || c.isMain !== false);
+    .filter((c) => state.inactifs || isActive(c) || (state.view === 'favoris' && isFav(c)))
+    .filter((c) => withAlts || state.view === 'favoris' || !state.mainsOnly || c.isMain !== false)
+    .filter((c) => state.view === 'tous' || (state.view === 'raid' ? c.raider : isFav(c)));
 }
 
 const findChar = (name, realm) => state.data.characters.find((x) => x.name === name && (!realm || x.realm === realm));
@@ -53,14 +66,31 @@ const altsChip = (c) => (c.isMain && c.alts?.length ? `<span class="pill" title=
 const rerollTag = (c) => (c.isMain === false ? `<div class="small">reroll de ${esc(c.main)}</div>` : '');
 
 function filters({ mains = true } = {}) {
-  return `${mains ? `<label><input type="checkbox" id="mainsOnly" ${state.mainsOnly ? 'checked' : ''}> Mains uniquement</label>` : ''}
+  const views = [['tous', 'Tous'], ['raid', '⚔ Roster raid'], ['favoris', '★ Favoris']];
+  return `<span class="seg">${views.map(([v, l]) => `<button data-view="${v}" class="${state.view === v ? 'on' : ''}">${l}${v === 'favoris' && favs.size ? ` (${favs.size})` : ''}</button>`).join('')}</span>
+    ${mains ? `<label><input type="checkbox" id="mainsOnly" ${state.mainsOnly ? 'checked' : ''}> Mains uniquement</label>` : ''}
     <label><input type="checkbox" id="inactifs" ${state.inactifs ? 'checked' : ''}> Inclure les inactifs (+${state.data.config.joursInactif} j)</label>`;
 }
 function bindFilters(redraw) {
   const m = $app.querySelector('#mainsOnly'), i = $app.querySelector('#inactifs');
   if (m) m.onchange = (e) => { state.mainsOnly = e.target.checked; redraw(); };
   if (i) i.onchange = (e) => { state.inactifs = e.target.checked; redraw(); };
+  $app.querySelectorAll('.seg button').forEach((b) => b.onclick = () => {
+    state.view = b.dataset.view;
+    try { localStorage.setItem('reborn.vue', state.view); } catch { /* navigation privée */ }
+    route({ keepScroll: true });
+  });
 }
+
+// Étoile de favori : bascule sans ouvrir la fiche, puis redessine la page.
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-fav]');
+  if (!b) return;
+  e.stopPropagation();
+  e.preventDefault();
+  toggleFav(b.dataset.fav);
+  route({ keepScroll: true });
+}, true);
 
 function renderKpis() {
   const d = state.data;
@@ -133,7 +163,7 @@ function renderMembres() {
     state.sort = { key: k, dir: state.sort.key === k ? -state.sort.dir : (k === 'name' || k === 'rank' ? 1 : -1) };
     renderMembres();
   });
-  $app.querySelector('#rows').onclick = (e) => { const tr = e.target.closest('tr[data-href]'); if (tr) location.hash = tr.dataset.href; };
+  $app.querySelector('#rows').onclick = (e) => { if (e.target.closest('.fav')) return; const tr = e.target.closest('tr[data-href]'); if (tr) location.hash = tr.dataset.href; };
 }
 
 // ---------- Classement ----------
@@ -180,7 +210,7 @@ function renderClassement() {
     <p class="small">Scores de la saison en cours, via Raider.IO (mis à jour à chaque synchro).</p>
     ${parsesTable()}`;
   bindFilters(renderClassement);
-  $app.querySelector('#rows').onclick = (e) => { const tr = e.target.closest('tr[data-href]'); if (tr) location.hash = tr.dataset.href; };
+  $app.querySelector('#rows').onclick = (e) => { if (e.target.closest('.fav')) return; const tr = e.target.closest('tr[data-href]'); if (tr) location.hash = tr.dataset.href; };
 }
 
 function parsesTable() {
@@ -494,8 +524,8 @@ function renderPerso(realm, name) {
     <div class="profile">
       <div class="portrait">${c.render ? `<img src="${esc(c.render)}" alt="${esc(c.name)}">` : ''}</div>
       <div>
-        <h2 style="color:${color(c)}">${esc(c.name)}</h2>
-        <div class="meta">${esc([c.race, c.className, c.spec, c.hero].filter(Boolean).join(' · '))}<br>
+        <h2 style="color:${color(c)}">${favButton(c)} ${esc(c.name)}</h2>
+        <div class="meta">${c.raider ? '<span class="pill raid">⚔ Roster raid</span> ' : ''}${esc([c.race, c.className, c.spec, c.hero].filter(Boolean).join(' · '))}<br>
           ${esc(rankName(c.rank))} · niv. ${c.level} · <b>${c.ilvl} ilvl</b> · vu ${ago(c.lastLogin)}</div>
         <div class="links">
           <a class="btn" target="_blank" rel="noopener" href="https://worldofwarcraft.blizzard.com/fr-fr/character/eu/${slug}">Armurerie</a>
@@ -564,12 +594,12 @@ document.addEventListener('click', (e) => {
 });
 
 // ---------- Routage ----------
-function route() {
+function route(opts = {}) {
   if (!state.data) return;
   const parts = location.hash.replace(/^#\/?/, '').split('/');
   const tab = parts[0] || 'membres';
   document.querySelectorAll('.tabs a').forEach((a) => a.classList.toggle('active', a.dataset.tab === (tab === 'soiree' ? 'soirees' : tab)));
-  window.scrollTo(0, 0);
+  if (!opts.keepScroll) window.scrollTo(0, 0);
   if (tab === 'alertes') renderAlertes();
   else if (tab === 'classement') renderClassement();
   else if (tab === 'coffre') renderCoffre();

@@ -25,6 +25,8 @@
   "raiderio": { "expansionId": 11 },
   "_wcl": "Warcraft Logs : difficulté 3 = normal, 4 = héroïque, 5 = mythique. partGuildeMin : part minimale de membres de la guilde pour garder un combat. shameOptOut : persos exclus du Hall of Shame",
   "wcl": { "guildName": "Rebõrn", "semaines": 4, "difficulty": 4, "zoneIds": [], "partGuildeMin": 0.5, "shameOptOut": [] },
+  "_roster": "Roster raid : persos présents à au moins minSoirees soirées Warcraft Logs (période wcl.semaines). inclus / exclus : noms à ajouter ou retirer à la main",
+  "roster": { "minSoirees": 2, "inclus": [], "exclus": [] },
   "_coffre": "Seuils du coffre de la semaine : nombre de clés M+ et de boss de raid pour chaque emplacement",
   "coffre": { "donjons": [1, 4, 8], "raid": [2, 4, 6] },
   "_discord": "Jours de raid (en français) et heure de Paris du rappel enchants",
