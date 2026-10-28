@@ -1,6 +1,6 @@
 // Poste sur Discord un rappel amical avec un lien vers la page des enchants et gemmes manquants.
 // Usage : node scripts/discord.mjs [--force] [--dry-run] [--check]
-//   --check   : dit seulement si c'est l'heure du rappel (écrit send=true/false pour GitHub Actions)
+//   --check   : dit seulement si on est dans la fenêtre du rappel (écrit send et date pour GitHub Actions)
 //   --force   : ignore le jour et l'heure configurés
 //   --dry-run : affiche le message au lieu de l'envoyer
 import { readFileSync, appendFileSync } from 'node:fs';
@@ -8,20 +8,27 @@ import { join } from 'node:path';
 import { ROOT, config, env } from './common.mjs';
 
 const args = new Set(process.argv.slice(2));
-const { joursRaid = [], heureRappel = 18 } = config.discord || {};
+const { joursRaid = [], heureRappel = 18, debutRaid = '20:45' } = config.discord || {};
 
+// GitHub ne lance pas les tâches planifiées à l'heure pile (souvent avec des heures de retard) :
+// on envoie au premier passage entre heureRappel et le début du raid, une seule fois par jour
+// (le workflow se souvient du jour envoyé grâce à son cache).
 function isReminderTime() {
   const now = new Date();
   const fmt = (o) => new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', ...o }).format(now);
   const jour = fmt({ weekday: 'long' }).toLowerCase();
-  const heure = parseInt(fmt({ hour: 'numeric', hourCycle: 'h23' }), 10);
-  return { ok: joursRaid.map((j) => j.toLowerCase()).includes(jour) && heure === heureRappel, jour, heure };
+  const [h, m] = fmt({ hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).split(':').map(Number);
+  const [rh, rm] = debutRaid.split(':').map(Number);
+  const minutes = h * 60 + m;
+  const ok = joursRaid.map((j) => j.toLowerCase()).includes(jour) && minutes >= heureRappel * 60 && minutes < rh * 60 + rm;
+  const date = new Intl.DateTimeFormat('fr-CA', { timeZone: 'Europe/Paris' }).format(now);
+  return { ok, jour, heure: `${h}h${String(m).padStart(2, '0')}`, date };
 }
 
 if (args.has('--check')) {
-  const { ok, jour, heure } = isReminderTime();
-  console.log(`${jour} ${heure}h (Paris) → ${ok ? 'rappel à envoyer' : 'pas de rappel'}`);
-  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `send=${ok}\n`);
+  const { ok, jour, heure, date } = isReminderTime();
+  console.log(`${jour} ${heure} (Paris) → ${ok ? 'dans la fenêtre du rappel' : 'pas de rappel'}`);
+  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `send=${ok}\ndate=${date}\n`);
   process.exit(0);
 }
 

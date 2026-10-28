@@ -29,7 +29,7 @@
   "roster": { "minSoirees": 2, "inclus": [], "exclus": [] },
   "_coffre": "Seuils du coffre de la semaine : nombre de clés M+ et de boss de raid pour chaque emplacement",
   "coffre": { "donjons": [1, 4, 8], "raid": [2, 4, 6] },
-  "_discord": "Jours de raid (en français) et heure de Paris du rappel enchants",
-  "discord": { "joursRaid": ["mercredi", "jeudi"], "heureRappel": 19 },
+  "_discord": "Jours de raid (en français). Le rappel part une fois, au premier passage entre heureRappel et debutRaid (heure de Paris)",
+  "discord": { "joursRaid": ["mercredi", "jeudi"], "heureRappel": 18, "debutRaid": "20:45" },
   "slotsEnchantables": ["HEAD", "SHOULDER", "CHEST", "LEGS", "FEET", "FINGER_1", "FINGER_2", "MAIN_HAND", "OFF_HAND"]
 }
