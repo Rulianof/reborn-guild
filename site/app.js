@@ -288,22 +288,26 @@ function renderSoiree(date) {
     <p class="small" style="margin:8px 0 0">Coups fataux de la soirée (kills + 3 premières morts de chaque wipe).</p></div>` : ''}
 
     <div class="section-title">Détail par joueur</div>
-    <div class="table-wrap"><table>
-      <thead><tr><th>Joueur</th><th>Pulls</th><th>Meilleur parse</th><th>Parse moyen</th><th>DPS / HPS</th><th>Morts</th><th>Souvent tué par</th><th>1er mort</th><th>Interrupts</th><th>Sans flacon</th><th>Sans food</th></tr></thead>
+    <div class="table-wrap"><table class="compact">
+      <thead><tr><th>Joueur</th><th title="Pulls">Pulls</th><th title="Meilleur parse">Meilleur</th><th title="Parse moyen">Moyen</th><th>DPS / HPS</th><th>Morts</th><th>Souvent tué par</th><th title="Premier mort du pull">1er mort</th><th title="Interrupts">Kicks</th><th title="Pulls sans flacon / sans nourriture">Conso</th></tr></thead>
       <tbody class="rows">${players.map((p) => {
         const c = byName.get(p.name);
+        const conso = [p.noFlask ? `🧪${p.noFlask}` : '', p.noFood ? `🍗${p.noFood}` : ''].filter(Boolean).join(' ');
         return `<tr ${c ? `data-href="${charUrl(c)}"` : ''}>
-          <td>${c ? charCell(c) : `<b>${esc(p.name)}</b>`}${p.guest ? ' <span class="pill">invité</span>' : ''}</td>
+          <td><div class="char">${c ? favButton(c) : ''}<b style="color:${c ? color(c) : 'inherit'}">${esc(p.name)}</b>${c?.raider ? ' <span class="pill raid">⚔</span>' : ''}${p.guest ? ' <span class="pill">invité</span>' : ''}</div></td>
           <td class="num">${p.pulls}</td>
           <td class="num">${parseCell(p.bestParse)}</td>
           <td class="num">${parseCell(p.avgParse)}</td>
           <td class="num">${p.hps > p.dps ? `${fmtNum(p.hps)} <span class="small">HPS</span>` : p.dps ? fmtNum(p.dps) : '—'}</td>
-          <td class="num">${p.deaths}</td><td class="small">${p.topKiller ? `${esc(p.topKiller[0])} ×${p.topKiller[1]}` : ''}</td><td class="num">${p.firstDeaths || ''}</td><td class="num">${p.interrupts || ''}</td>
-          <td class="num">${p.noFlask ? `<span style="color:var(--warn)">${p.noFlask}</span>` : ''}</td>
-          <td class="num">${p.noFood ? `<span style="color:var(--warn)">${p.noFood}</span>` : ''}</td>
+          <td class="num">${p.deaths}</td>
+          <td class="small wrap">${p.topKiller ? `${esc(p.topKiller[0])} ×${p.topKiller[1]}` : ''}</td>
+          <td class="num">${p.firstDeaths || ''}</td>
+          <td class="num">${p.interrupts || ''}</td>
+          <td class="num" style="color:var(--warn)" title="${p.noFlask} pull(s) sans flacon, ${p.noFood} sans nourriture">${conso}</td>
         </tr>`;
       }).join('')}</tbody>
-    </table></div>`;
+    </table></div>
+    <p class="small">Conso : 🧪 pulls sans flacon · 🍗 pulls sans nourriture.</p>`;
 }
 
 // ---------- Coffre de la semaine ----------

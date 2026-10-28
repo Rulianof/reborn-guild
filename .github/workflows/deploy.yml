@@ -4,6 +4,8 @@ name: Synchro et publication
 on:
   schedule:
     - cron: '17 */3 * * *'   # toutes les 3 heures
+    # Après le raid du mercredi et du jeudi (~23h05 à 0h35, heure de Paris ; GitHub peut décaler)
+    - cron: '5,35 22-23 * * 3,4'
   workflow_dispatch:          # bouton « Run workflow » dans l'onglet Actions
   push:
     branches: [main]

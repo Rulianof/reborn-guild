@@ -54,6 +54,12 @@ footer { padding-bottom: 32px; font-size: 13px; }
 
 /* Tableau */
 .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+/* Barre de défilement visible quand un tableau est plus large que l'écran */
+.table-wrap { scrollbar-width: thin; scrollbar-color: var(--gold-dim) transparent; }
+.table-wrap::-webkit-scrollbar { height: 10px; }
+.table-wrap::-webkit-scrollbar-thumb { background: var(--gold-dim); border-radius: 99px; }
+table.compact th, table.compact td { padding: 8px 10px; }
+table.compact td.wrap { white-space: normal; min-width: 140px; }
 table { width: 100%; border-collapse: collapse; }
 th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
 th { font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); cursor: pointer; user-select: none; position: sticky; top: 0; background: var(--panel); }

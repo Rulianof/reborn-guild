@@ -284,9 +284,8 @@ export async function syncWcl(characters, guildNames) {
     const file = join(CACHE, `${r.code}.json`);
     const rawFile = join(RAW, `${r.code}.json.gz`);
     const cached = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : null;
-    // Un rapport encore « en cours » (fini il y a moins de 6 h) est rechargé à chaque synchro.
-    const done = Date.now() - r.endTime > 6 * 3600000;
-    let raw = done && existsSync(rawFile) ? JSON.parse(gunzipSync(readFileSync(rawFile))) : null;
+    // Le brut en cache est réutilisé tant que le rapport n'a pas changé (même heure de fin).
+    let raw = existsSync(rawFile) ? JSON.parse(gunzipSync(readFileSync(rawFile))) : null;
     if (raw?.endTime !== r.endTime) raw = null;
     if (!raw) {
       if ((await pointsLeft().catch(() => 0)) < 60) {
