@@ -6,10 +6,12 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSy
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { join } from 'node:path';
 import { ROOT, config, env } from './common.mjs';
+import { analyse, roleMedians, surveilles } from './analyse.mjs';
 
 const WCL = 'https://www.warcraftlogs.com';
 const CACHE = join(ROOT, 'cache/wcl');
-const CACHE_VERSION = 3; // à incrémenter quand processReport change, pour recalculer les soirées
+const CACHE_VERSION = 4;
+const EXTRA_VERSION = 2; // version des données supplémentaires (raw.extra) : à incrémenter si fetchExtra change // à incrémenter quand processReport change, pour recalculer les soirées
 const DAY = 86400000;
 
 let token;
@@ -79,6 +81,55 @@ async function fetchReport(code) {
   };
 }
 
+// Données supplémentaires pour le coaching, sur les seuls combats de la guilde :
+// % du boss et phase par pull, défensifs et soins lancés, dégâts subis par capacité et activité par boss.
+// Les tableaux Warcraft Logs ne détaillent que 5 lignes imbriquées : pour avoir toutes les capacités
+// subies par chaque joueur, on demande un tableau par joueur (sourceID), ~1 point chacun.
+async function fetchExtra(code, fights, actors) {
+  if (!fights.length) return { v: EXTRA_VERSION, fights: {}, defs: [], taken: {}, casts: {} };
+  const ids = fights.map((f) => f.id);
+  const byEnc = {};
+  for (const f of fights) (byEnc[f.encounterID] ??= []).push(f.id);
+  const encTables = Object.entries(byEnc).map(([enc, list]) =>
+    `t${enc}: table(dataType: DamageTaken, fightIDs: ${JSON.stringify(list)}, viewBy: Ability)\n    c${enc}: table(dataType: Casts, fightIDs: ${JSON.stringify(list)})`).join('\n    ');
+  const playerTables = actors.map((a) => `p${a.id}: table(dataType: DamageTaken, fightIDs: ${JSON.stringify(ids)}, sourceID: ${a.id}, viewBy: Ability)`).join('\n    ');
+  const filter = `ability.name in (${surveilles().map((n) => JSON.stringify(n)).join(', ')})`;
+  const q = `query($code: String!, $ids: [Int]!, $f: String!, $start: Float) { reportData { report(code: $code) {
+    fights(fightIDs: $ids) { id bossPercentage lastPhase lastPhaseIsIntermission }
+    masterData { actors(type: "Player") { id name } abilities { gameID name } }
+    defs: events(dataType: Casts, fightIDs: $ids, filterExpression: $f, limit: 10000, startTime: $start) { data nextPageTimestamp }
+    ${encTables}
+    ${playerTables}
+  } } }`;
+  const r = (await gql(q, { code, ids, f: filter })).reportData.report;
+  const actor = new Map(r.masterData.actors.map((a) => [a.id, a.name]));
+  const ability = new Map(r.masterData.abilities.map((a) => [a.gameID, a.name]));
+  let events = json(r.defs.data) || [];
+  let next = r.defs.nextPageTimestamp;
+  while (next) { // pagination, rare
+    const more = (await gql(`query($code: String!, $ids: [Int]!, $f: String!, $start: Float) { reportData { report(code: $code) {
+      defs: events(dataType: Casts, fightIDs: $ids, filterExpression: $f, limit: 10000, startTime: $start) { data nextPageTimestamp } } } }`, { code, ids, f: filter, start: next })).reportData.report.defs;
+    events = events.concat(json(more.data) || []);
+    next = more.nextPageTimestamp;
+  }
+  // Dégâts subis par joueur et par capacité (liste complète), puis regroupés par capacité pour chaque boss.
+  const takenBy = {};
+  for (const a of actors) {
+    for (const e of json(r[`p${a.id}`])?.data?.entries || []) (takenBy[e.name] ??= []).push({ name: a.name, total: e.total || 0 });
+  }
+  const slimTaken = (t) => (json(t)?.data?.entries || []).map((e) => ({
+    name: e.name, actorType: e.actorType, targets: takenBy[e.name] || [],
+  }));
+  const slimCasts = (t) => ({ entries: (json(t)?.data?.entries || []).map((e) => ({ name: e.name, activeTime: e.activeTime || 0 })) });
+  return {
+    v: EXTRA_VERSION,
+    fights: Object.fromEntries(r.fights.map((f) => [f.id, { pct: f.bossPercentage, phase: f.lastPhase, inter: f.lastPhaseIsIntermission }])),
+    defs: events.filter((e) => e.type === 'cast').map((e) => ({ t: e.timestamp, fight: e.fight, src: actor.get(e.sourceID), ability: ability.get(e.abilityGameID) })).filter((e) => e.src && e.ability),
+    taken: Object.fromEntries(Object.keys(byEnc).map((enc) => [enc, slimTaken(r[`t${enc}`])])),
+    casts: Object.fromEntries(Object.keys(byEnc).map((enc) => [enc, slimCasts(r[`c${enc}`])])),
+  };
+}
+
 async function pointsLeft() {
   const r = (await gql('{ rateLimitData { limitPerHour pointsSpentThisHour } }')).rateLimitData;
   return r.limitPerHour - r.pointsSpentThisHour;
@@ -107,12 +158,11 @@ function sumByPlayer(table, players) {
 // guild : noms des persos de la guilde. On ne garde que les combats où ils sont au moins
 // config.wcl.partGuildeMin (par défaut la moitié) : ça écarte les raids outil ou les groupes extérieurs
 // loggés dans le même rapport. (Interrupts et dispels restent comptés sur tout le rapport.)
-export function processReport(raw, guild) {
+export function guildFights(raw, guild) {
   const actorById = new Map((raw.masterData?.actors || []).map((a) => [a.id, a]));
-  const t0 = raw.tables || {};
   const share = config.wcl.partGuildeMin ?? 0.5;
   const fightPlayers = new Map();
-  for (const ev of t0.combatants || []) {
+  for (const ev of raw.tables?.combatants || []) {
     const a = actorById.get(ev.sourceID);
     if (!a) continue;
     if (!fightPlayers.has(ev.fight)) fightPlayers.set(ev.fight, []);
@@ -122,7 +172,12 @@ export function processReport(raw, guild) {
     const names = fightPlayers.get(f.id) || [];
     return names.length && names.filter((n) => guild.has(n)).length / names.length >= share;
   }).map((f) => f.id));
-  const fights = (raw.fights || []).filter((f) => keep.has(f.id));
+  return { keep, fightPlayers, actorById, fights: (raw.fights || []).filter((f) => keep.has(f.id)) };
+}
+
+export function processReport(raw, guild) {
+  const t0 = raw.tables || {};
+  const { keep, fightPlayers, actorById, fights } = guildFights(raw, guild);
   const t = {
     ...t0,
     combatants: (t0.combatants || []).filter((ev) => keep.has(ev.fight)),
@@ -182,6 +237,7 @@ export function processReport(raw, guild) {
     list.sort((a, b) => a.time - b.time);
     const kill = fights.find((f) => f.id === fightId)?.kill;
     const counted = kill ? list : list.slice(0, 3);
+    counted.forEach((d) => { d.counted = true; });
     P(counted[0].name).firstDeaths++;
     for (const d of counted) {
       const p = P(d.name);
@@ -197,7 +253,10 @@ export function processReport(raw, guild) {
   for (const [n, v] of Object.entries(sumByPlayer(t.dispels, players))) P(n).dispels = v;
 
   const avg = (a) => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : null);
+  const roleOf = (n) => Object.entries(stats[n]?.roles || {}).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  const coach = analyse(raw, { fights, fightPlayers, deaths: Object.fromEntries(byFight), roleOf, players });
   const list = Object.values(stats).filter((p) => p.pulls).map((p) => ({
+    ...(coach?.perPlayer[p.name] || {}),
     name: p.name, guest: !guild.has(p.name), server: p.server, cls: p.cls, pulls: p.pulls, kills: p.kills, deaths: p.deaths, firstDeaths: p.firstDeaths,
     bestParse: p.parses.length ? Math.max(...p.parses.map((x) => x.pct)) : null,
     avgParse: round(avg(p.parses.map((x) => x.pct))),
@@ -217,6 +276,9 @@ export function processReport(raw, guild) {
     kills: fights.filter((f) => f.kill).map((f) => ({ name: f.name, difficulty: f.difficulty })),
     wipes: fights.filter((f) => !f.kill).length,
     killers: Object.entries(killers).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, count]) => ({ name, count })),
+    encounters: coach?.encounters || [],
+    missedKicks: coach?.missedKicks || [],
+    medians: roleMedians(list),
     players: list,
   };
 }
@@ -302,6 +364,17 @@ export async function syncWcl(characters, guildNames) {
       }
       writeFileSync(rawFile, gzipSync(JSON.stringify(raw)));
     }
+    if (raw.extra?.v !== EXTRA_VERSION) {
+      try {
+        const gf = guildFights(raw, guildNames);
+        const present = new Set(gf.fights.flatMap((f) => gf.fightPlayers.get(f.id) || []));
+        const actors = (raw.masterData?.actors || []).filter((a) => present.has(a.name));
+        raw.extra = await fetchExtra(r.code, gf.fights, actors);
+        writeFileSync(rawFile, gzipSync(JSON.stringify(raw)));
+      } catch (e) {
+        console.log(`Warcraft Logs : données de coaching de ${r.code} non importées (${e.message}).`);
+      }
+    }
     const rep = processReport(raw, guildNames);
     writeFileSync(file, JSON.stringify(rep));
     processed.push(rep);
@@ -328,6 +401,15 @@ export async function syncWcl(characters, guildNames) {
   const nights = [...byNight.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([date, rep]) => ({
     date, ...rep, url: `${WCL}/reports/${rep.code}`, ...hallOf(rep, optOut),
   }));
+
+  // Une soirée sans kill n'a pas de classement, donc pas de rôle : on reprend celui des autres soirées,
+  // puis on recalcule les médianes par rôle.
+  const knownRole = {};
+  for (const n of nights) for (const p of n.players) if (p.role) knownRole[p.name] ??= p.role;
+  for (const n of nights) {
+    for (const p of n.players) p.role ??= knownRole[p.name] ?? null;
+    n.medians = roleMedians(n.players);
+  }
 
   // Présence par perso (nombre de soirées et de pulls) : sert aussi à choisir le main d'un compte.
   const attendance = {};

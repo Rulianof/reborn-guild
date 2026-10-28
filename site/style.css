@@ -167,6 +167,22 @@ td.num { font-variant-numeric: tabular-nums; font-weight: 600; }
 .seg button.on { background: #d9b45a22; color: var(--gold); }
 .pill.raid { color: var(--gold); background: #d9b45a1a; }
 
+/* Lisibilité Warcraft Logs */
+.help { display: inline-flex; align-items: center; justify-content: center; width: 17px; height: 17px; border-radius: 50%; font-size: 11px; font-weight: 700; text-decoration: none; color: var(--bg); background: var(--muted); vertical-align: middle; cursor: help; text-transform: none; letter-spacing: 0; }
+.help:hover { background: var(--gold); }
+.summary ul.plain li { display: block; border: 0; padding: 3px 0; }
+.chart { width: 100%; height: auto; display: block; }
+.chart .grid-line { stroke: #ffffff14; }
+.chart .sep { stroke: #d9b45a44; stroke-dasharray: 4 4; }
+.chart .axis { fill: var(--muted); font: 12px Inter, sans-serif; }
+.chart .line { fill: none; stroke: var(--gold); stroke-width: 2; opacity: .7; }
+.chart .dot { fill: var(--gold); }
+.chart .dot-kill { fill: var(--ok); stroke: var(--bg); stroke-width: 2; }
+table.bulletin { width: 100%; }
+table.bulletin td, table.bulletin th { white-space: normal; }
+table.bulletin td.num { white-space: nowrap; }
+table.bulletin th, table.bulletin td { padding: 6px 6px; }
+
 @media (max-width: 760px) {
   .brand h1 { font-size: 34px; }
   .profile { grid-template-columns: 1fr; }

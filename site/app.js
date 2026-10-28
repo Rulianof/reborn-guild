@@ -277,6 +277,9 @@ function renderSoiree(date) {
       <span class="muted">${esc(n.zone || '')} · ${n.kills.map((k) => esc(k.name)).join(', ') || 'aucun kill'} · ${n.wipes} wipes · ${n.pulls} pulls</span>
     </div><span style="flex:1"></span><a class="btn" href="${esc(n.url)}" target="_blank" rel="noopener">Voir le log</a></div>
 
+    <div class="card summary"><h3>En bref</h3><ul class="plain">${nightSummary(n).map((l) => `<li>${l}</li>`).join('')}</ul></div>
+    ${(n.encounters || []).length ? `<div class="section-title">Boss de la soirée</div>${bossTable(n)}` : ''}
+
     <div class="section-title">🌟 Hall of Fame</div>
     <div class="hall-grid">${hallCards(n.fame, 'fame')}</div>
     <div class="section-title">🙈 Hall of Shame</div>
@@ -289,7 +292,7 @@ function renderSoiree(date) {
 
     <div class="section-title">Détail par joueur</div>
     <div class="table-wrap"><table class="compact">
-      <thead><tr><th>Joueur</th><th title="Pulls">Pulls</th><th title="Meilleur parse">Meilleur</th><th title="Parse moyen">Moyen</th><th>DPS / HPS</th><th>Morts</th><th>Souvent tué par</th><th title="Premier mort du pull">1er mort</th><th title="Interrupts">Kicks</th><th title="Pulls sans flacon / sans nourriture">Conso</th></tr></thead>
+      <thead><tr><th>Joueur</th><th title="Pulls">Pulls</th><th title="Meilleur parse">Meilleur ${help('parse')}</th><th title="Parse moyen">Moyen</th><th>DPS / HPS</th><th>Morts</th><th>Souvent tué par</th><th title="Premier mort du pull">1er mort</th><th title="Interrupts">Kicks ${help('kick')}</th><th title="Pulls sans flacon / sans nourriture">Conso ${help('conso')}</th></tr></thead>
       <tbody class="rows">${players.map((p) => {
         const c = byName.get(p.name);
         const conso = [p.noFlask ? `🧪${p.noFlask}` : '', p.noFood ? `🍗${p.noFood}` : ''].filter(Boolean).join(' ');
@@ -308,6 +311,130 @@ function renderSoiree(date) {
       }).join('')}</tbody>
     </table></div>
     <p class="small">Conso : 🧪 pulls sans flacon · 🍗 pulls sans nourriture.</p>`;
+}
+
+// ---------- Lexique et aides à la lecture ----------
+const LEXIQUE = {
+  parse: ['Parse', 'Ta note de 0 à 100 sur un boss, comparée aux joueurs de ta spé dans le monde entier. 50 = la moitié des joueurs font mieux, 99 = presque personne ne fait mieux. Gris < 25, vert 25+, bleu 50+, violet 75+, orange 95+, rose 99+.'],
+  mediane: ['Médiane', 'La valeur du milieu : la moitié des joueurs de la guilde font mieux, l’autre moitié moins bien. Plus parlant qu’une moyenne, qu’un seul chiffre extrême ne fausse pas.'],
+  dps: ['DPS / HPS', 'Dégâts (ou soins) par seconde, en moyenne sur le combat.'],
+  activite: ['Activité', 'La part du combat passée à lancer des sorts pendant que tu étais en vie. Proche de 100 % = tu ne perds pas de temps (« Always Be Casting »). En dessous de 85 %, il y a souvent de la marge.'],
+  evitable: ['Dégâts évitables', 'Des capacités dont certains joueurs prennent beaucoup plus que les autres : en général des zones au sol, des frontales, des projectiles à esquiver. Détectées automatiquement, à confirmer par un officier : une mécanique assignée à quelqu’un peut ressembler à une erreur.'],
+  pull: ['Pull', 'Un essai sur un boss, du début du combat jusqu’au kill ou au wipe.'],
+  wipe: ['Wipe', 'Un essai raté : tout le raid meurt ou on abandonne le pull.'],
+  kick: ['Kick (interrupt)', 'Couper l’incantation d’un ennemi avec un sort d’interruption. Un « kick manqué », c’est un sort important que personne n’a coupé.'],
+  dispel: ['Dispel', 'Retirer un effet néfaste (poison, magie, malédiction…) d’un allié.'],
+  defensif: ['Défensif', 'Un sort qui réduit tes dégâts subis ou te sauve (Barkskin, Divine Protection, Icebound Fortitude…). À utiliser avant un gros coup, pas après.'],
+  soak: ['Soak / stack', 'Soak : aller volontairement dans une zone pour partager ses dégâts. Stack : se regrouper au même endroit. Ne pas le faire tue souvent quelqu’un d’autre.'],
+  conso: ['Consommables', 'Flacon (stats pendant 1 h), nourriture (buff « Well Fed »), potions et pierre de soins. Le flacon et la nourriture sont vérifiés au début de chaque pull.'],
+  phase: ['Phase', 'Les étapes d’un combat de boss. « On wipe en phase 2 » veut dire qu’on passe la phase 1 mais pas la suivante.'],
+};
+const help = (k) => (LEXIQUE[k] ? `<a class="help" href="#/lexique" title="${esc(LEXIQUE[k][1])}">?</a>` : '');
+
+function renderLexique() {
+  $app.innerHTML = `<h2 class="section-title" style="margin-top:0">Lexique</h2>
+    <p class="muted">Les mots de Warcraft Logs, en clair. Sur le site, survole un petit <span class="help">?</span> pour voir la définition.</p>
+    <div class="grid">${Object.values(LEXIQUE).map(([t, d]) => `<div class="card"><h3>${esc(t)}</h3><p style="margin:0">${esc(d)}</p></div>`).join('')}</div>`;
+}
+
+const ROLE_NAME = { tanks: 'tanks', healers: 'soigneurs', dps: 'DPS' };
+
+// Résumé de la soirée en phrases.
+function nightSummary(n) {
+  const encs = n.encounters || [];
+  const out = [];
+  const kills = encs.filter((e) => e.pulls.some((p) => p.kill));
+  out.push(`<b>${kills.length} boss tué${kills.length > 1 ? 's' : ''}</b>${kills.length ? ` (${kills.map((e) => esc(e.name)).join(', ')})` : ''} en ${n.pulls} pulls.`);
+  const hard = [...encs].sort((a, b) => b.pulls.filter((p) => !p.kill).length - a.pulls.filter((p) => !p.kill).length)[0];
+  const hardWipes = hard ? hard.pulls.filter((p) => !p.kill).length : 0;
+  if (hard && hardWipes >= 2) {
+    const best = Math.min(...hard.pulls.map((p) => p.pct ?? 100));
+    out.push(`Le plus dur : <b>${esc(hard.name)}</b>, ${hardWipes} wipes${hard.pulls.some((p) => p.kill) ? ' avant le kill' : `, meilleur essai à <b>${best.toFixed(1)} %</b>`}.`);
+  }
+  if (n.killers?.[0]) out.push(`Ce qui nous a le plus tués : <b>${esc(n.killers[0].name)}</b> (${n.killers[0].count} morts).`);
+  if (n.missedKicks?.[0]) out.push(`Kicks à surveiller : <b>${esc(n.missedKicks[0].name)}</b> est passé ${n.missedKicks[0].done} fois (coupé ${n.missedKicks[0].kicked} fois) ${help('kick')}.`);
+  return out;
+}
+
+function bossTable(n) {
+  const encs = n.encounters || [];
+  if (!encs.length) return '';
+  return `<div class="table-wrap"><table class="compact">
+    <thead><tr><th>Boss</th><th>Pulls</th><th>Résultat</th><th>Phase max ${help('phase')}</th><th></th></tr></thead>
+    <tbody>${encs.map((e) => {
+      const kill = e.pulls.some((p) => p.kill);
+      const best = Math.min(...e.pulls.map((p) => p.pct ?? 100));
+      const phase = Math.max(0, ...e.pulls.map((p) => p.phase || 0));
+      return `<tr><td><b>${esc(e.name)}</b></td><td class="num">${e.pulls.length}</td>
+        <td>${kill ? '<span class="pill ok">✓ tué</span>' : `<span class="pill warn">${best.toFixed(1)} %</span>`}</td>
+        <td class="num">${phase || '—'}</td><td><a href="#/boss/${e.id}">Voir le boss →</a></td></tr>`;
+    }).join('')}</tbody></table></div>`;
+}
+
+// Courbe de progression : % du boss à la fin de chaque pull, soirée après soirée (0 % = kill).
+function progressChart(rows) {
+  const W = 1000, H = 260, L = 44, B = 30, T = 14;
+  const n = rows.length;
+  if (!n) return '';
+  const x = (i) => L + (n === 1 ? (W - L) / 2 : (i * (W - L - 16)) / (n - 1));
+  const y = (pct) => T + ((100 - pct) / 100) * (H - T - B); // 100 % en haut, 0 % (kill) en bas
+  const pts = rows.map((r, i) => `${x(i).toFixed(1)},${y(r.pct).toFixed(1)}`).join(' ');
+  const grid = [0, 25, 50, 75, 100].map((v) => `<line x1="${L}" x2="${W}" y1="${y(v)}" y2="${y(v)}" class="grid-line"/><text x="${L - 8}" y="${y(v) + 4}" text-anchor="end" class="axis">${v} %</text>`).join('');
+  const seps = rows.map((r, i) => (i && r.date !== rows[i - 1].date ? `<line x1="${(x(i) + x(i - 1)) / 2}" x2="${(x(i) + x(i - 1)) / 2}" y1="${T}" y2="${H - B}" class="sep"/>` : '')).join('');
+  const labels = rows.map((r, i) => (!i || r.date !== rows[i - 1].date ? `<text x="${x(i)}" y="${H - 8}" class="axis">${esc(new Date(r.date + 'T12:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }))}</text>` : '')).join('');
+  const dots = rows.map((r, i) => `<circle cx="${x(i)}" cy="${y(r.pct)}" r="${r.kill ? 7 : 4}" class="${r.kill ? 'dot-kill' : 'dot'}"><title>${esc(r.date)} · pull ${r.n} : ${r.kill ? 'kill !' : `${r.pct.toFixed(1)} % restants`}${r.phase ? ` (phase ${r.phase})` : ''}</title></circle>`).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Progression : pourcentage du boss restant à chaque pull">${grid}${seps}<polyline points="${pts}" class="line"/>${dots}${labels}</svg>`;
+}
+
+function renderBoss(id) {
+  const nights = [...(state.raids?.nights || [])].reverse();
+  const seen = nights.flatMap((n) => (n.encounters || []).filter((e) => String(e.id) === String(id)).map((e) => ({ n, e })));
+  if (!seen.length) { $app.innerHTML = '<p class="muted">Boss introuvable. <a href="#/soirees">Retour</a></p>'; return; }
+  const name = seen[0].e.name;
+  const rows = seen.flatMap(({ n, e }) => e.pulls.map((p, i) => ({ ...p, pct: p.kill ? 0 : p.pct ?? 100, date: n.date, n: i + 1 })));
+  const kills = rows.filter((r) => r.kill).length;
+  const wipes = rows.filter((r) => !r.kill);
+  const sum = (key) => {
+    const m = {};
+    for (const { e } of seen) for (const k of e[key] || []) m[k.name] = (m[k.name] || 0) + (k.count ?? k.total);
+    return Object.entries(m).sort((a, b) => b[1] - a[1]);
+  };
+  const killers = sum('killers').slice(0, 8);
+  const avoid = sum('avoidable').slice(0, 8);
+  const phases = {};
+  for (const w of wipes) phases[w.phase || '?'] = (phases[w.phase || '?'] || 0) + 1;
+  const best = wipes.length ? Math.min(...wipes.map((w) => w.pct)) : null;
+
+  $app.innerHTML = `
+    <p><a href="javascript:history.back()" class="small">← Retour</a></p>
+    <h2 class="section-title" style="margin-top:0">${esc(name)}</h2>
+    <p class="muted">${rows.length} pulls sur ${seen.length} soirée${seen.length > 1 ? 's' : ''} · ${kills} kill${kills > 1 ? 's' : ''} · ${wipes.length} wipe${wipes.length > 1 ? 's' : ''}${best != null ? ` · meilleur wipe à ${best.toFixed(1)} %` : ''}</p>
+    <div class="card"><h3>Progression<small>% du boss restant à la fin de chaque pull · point vert = kill</small></h3>${progressChart(rows)}</div>
+    <div class="me-grid" style="margin-top:14px">
+      <div class="card"><h3>Où on wipe ${help('phase')}</h3>${wipes.length ? `<ul>${Object.entries(phases).sort().map(([ph, c]) => `<li><span>Phase ${esc(ph)}</span><b>${c} wipe${c > 1 ? 's' : ''}</b></li>`).join('')}</ul>` : '<p class="muted" style="margin:0">Aucun wipe.</p>'}</div>
+      <div class="card"><h3>Ce qui nous tue ici</h3>${killers.length ? `<ul>${killers.map(([k, c]) => `<li><span>${esc(k)}</span><b>${c} mort${c > 1 ? 's' : ''}</b></li>`).join('')}</ul>` : '<p class="muted" style="margin:0">Personne n’est mort.</p>'}</div>
+      <div class="card"><h3>Dégâts probablement évitables ${help('evitable')}</h3>${avoid.length ? `<ul>${avoid.map(([k, v]) => `<li><span>${esc(k)}</span><b>${fmtNum(v)}</b></li>`).join('')}</ul>
+        <p class="small" style="margin:8px 0 0">Détection automatique, à confirmer par un officier (config.json → wcl.mecaniques).</p>` : '<p class="muted" style="margin:0">Rien de flagrant détecté.</p>'}</div>
+    </div>`;
+}
+
+// Bulletin d'un joueur sur une soirée, comparé à la médiane de son rôle dans la guilde.
+function bulletin(me, n) {
+  const med = n.medians?.[me.role] || {};
+  const rows = [];
+  const cmp = (val, ref, higherIsBetter, tol = 0.1) => {
+    if (val == null || ref == null) return '';
+    const d = ref ? (val - ref) / Math.abs(ref) : 0;
+    const good = higherIsBetter ? d >= -tol : d <= tol;
+    const great = higherIsBetter ? d >= 0.15 : d <= -0.3;
+    return great ? '<span class="pill ok">mieux que la médiane</span>' : good ? '<span class="pill">dans la moyenne</span>' : '<span class="pill warn">à travailler</span>';
+  };
+  if (me.avgParse != null) rows.push(['Parse moyen', help('parse'), parseCell(me.avgParse), med.avgParse != null ? Math.round(med.avgParse) : '—', cmp(me.avgParse, med.avgParse, true, 0.15)]);
+  if (me.activity != null) rows.push(['Activité', help('activite'), `${me.activity} %`, med.activity != null ? `${Math.round(med.activity)} %` : '—', cmp(me.activity, med.activity, true, 0.03)]);
+  if (me.avoidablePerPull != null && (me.avoidablePerPull || med.avoidablePerPull)) rows.push(['Dégâts évitables / pull', help('evitable'), fmtNum(me.avoidablePerPull), med.avoidablePerPull != null ? fmtNum(Math.round(med.avoidablePerPull)) : '—', cmp(me.avoidablePerPull, med.avoidablePerPull, false, 0.25)]);
+  rows.push(['Morts', '', me.deaths, med.deaths ?? '—', cmp(me.deaths, med.deaths, false, 0.01)]);
+  return `<table class="compact bulletin"><thead><tr><th></th><th>Toi</th><th>Médiane ${esc(ROLE_NAME[me.role] || '')} ${help('mediane')}</th><th></th></tr></thead>
+    <tbody>${rows.map(([l, h, v, m, c]) => `<tr><td>${l} ${h}</td><td class="num">${v}</td><td class="num">${m}</td><td>${c}</td></tr>`).join('')}</tbody></table>`;
 }
 
 // ---------- Coffre de la semaine ----------
@@ -386,6 +513,11 @@ function conseils(c) {
     if (me.noFlask) out.push({ lvl: 'warn', icon: '🧪', text: `${esc(fmtDate(night.date))} : pas de flacon sur <b>${me.noFlask} pull${me.noFlask > 1 ? 's' : ''}</b>.` });
     if (me.noFood) out.push({ lvl: 'warn', icon: '🍗', text: `${esc(fmtDate(night.date))} : pas de nourriture sur <b>${me.noFood} pull${me.noFood > 1 ? 's' : ''}</b>.` });
     if (me.topKiller?.[1] >= 2) out.push({ lvl: 'warn', icon: '💀', text: `${esc(fmtDate(night.date))} : tué <b>${me.topKiller[1]} fois par ${esc(me.topKiller[0])}</b>. Renseigne-toi sur cette capacité (souvent évitable).` });
+    const med = night.medians?.[me.role] || {};
+    if (me.activity != null && me.activity < 88 && (med.activity == null || me.activity < med.activity - 5)) out.push({ lvl: 'warn', icon: '⏱️', text: `${esc(fmtDate(night.date))} : tu as passé <b>${100 - me.activity} % du temps de combat sans lancer de sort</b> (médiane des ${ROLE_NAME[me.role] || 'joueurs'} : ${Math.round(med.activity ?? 0)} %). Astuce : toujours avoir un sort en cours, même en te déplaçant. ${help('activite')}` });
+    if (me.topAvoidable && med.avoidablePerPull && me.avoidablePerPull >= 1.5 * med.avoidablePerPull) out.push({ lvl: 'warn', icon: '🔥', text: `${esc(fmtDate(night.date))} : sur <b>${esc(me.topAvoidable.boss)}</b>, tu as pris ${me.topAvoidable.ratio ? `<b>${me.topAvoidable.ratio}× plus</b>` : 'beaucoup'} de <b>${esc(me.topAvoidable.name)}</b> que la plupart du raid. Si ce n'était pas ton rôle sur cette mécanique, regarde comment l'éviter. ${help('evitable')}` });
+    if (me.deathsNoDef >= 2) out.push({ lvl: 'warn', icon: '🛡️', text: `${esc(fmtDate(night.date))} : <b>${me.deathsNoDef} de tes ${me.deathsChecked} morts</b> sans défensif ni potion/pierre de soins dans les 20 s avant. Astuce : garde un défensif pour les gros coups du boss. ${help('defensif')}` });
+    if (me.deaths > 0 && me.healItems === 0 && me.deathsChecked != null) out.push({ lvl: 'info', icon: '💊', text: `${esc(fmtDate(night.date))} : aucune pierre de soins ni potion de soin utilisée de la soirée. Elles sont gratuites à reprendre au chaudron ou chez le démoniste.` });
     if (me.firstDeaths >= 2) out.push({ lvl: 'warn', icon: '🪦', text: `${esc(fmtDate(night.date))} : premier mort sur <b>${me.firstDeaths} pulls</b>. Regarde ce qui t'a tué dans le log.` });
   }
   if (c.lastLogin && Date.now() - c.lastLogin > 7 * DAY) out.push({ lvl: 'info', icon: '🕒', text: `Ces infos datent de ta dernière déconnexion (${ago(c.lastLogin)}).` });
@@ -442,7 +574,7 @@ function renderMoi() {
         ${c.vault?.raid.kills?.length ? `<p class="small" style="margin:10px 0 0">${c.vault.raid.kills.map((k) => `${esc(k.boss)} <b>${DIFF_LABEL[k.diff]}</b>`).join(' · ')}</p>` : ''}
       </div>
       ${me ? `<div class="card"><h3>Dernier raid<small>${esc(fmtDate(night.date))}</small></h3>
-        <p style="margin:0">Meilleur parse ${parseCell(me.bestParse)} · moyen ${parseCell(me.avgParse)} · ${me.deaths} mort${me.deaths > 1 ? 's' : ''} · ${me.interrupts} interrupt${me.interrupts > 1 ? 's' : ''}</p>
+        ${me.role ? bulletin(me, night) : `<p style="margin:0">Meilleur parse ${parseCell(me.bestParse)} · ${me.deaths} mort${me.deaths > 1 ? 's' : ''}</p>`}
         <p style="margin:8px 0 0"><a href="#/soiree/${night.date}">Voir la soirée →</a></p></div>` : ''}
     </div>
 
@@ -602,7 +734,7 @@ function route(opts = {}) {
   if (!state.data) return;
   const parts = location.hash.replace(/^#\/?/, '').split('/');
   const tab = parts[0] || 'membres';
-  document.querySelectorAll('.tabs a').forEach((a) => a.classList.toggle('active', a.dataset.tab === (tab === 'soiree' ? 'soirees' : tab)));
+  document.querySelectorAll('.tabs a').forEach((a) => a.classList.toggle('active', a.dataset.tab === (tab === 'soiree' || tab === 'boss' ? 'soirees' : tab)));
   if (!opts.keepScroll) window.scrollTo(0, 0);
   if (tab === 'alertes') renderAlertes();
   else if (tab === 'classement') renderClassement();
@@ -610,6 +742,8 @@ function route(opts = {}) {
   else if (tab === 'moi') renderMoi();
   else if (tab === 'soirees') renderSoirees();
   else if (tab === 'soiree') renderSoiree(parts[1]);
+  else if (tab === 'boss') renderBoss(parts[1]);
+  else if (tab === 'lexique') renderLexique();
   else if (tab === 'metiers') renderMetiers();
   else if (tab === 'perso') renderPerso(parts[1], parts[2]);
   else renderMembres();
