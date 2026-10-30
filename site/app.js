@@ -851,7 +851,7 @@ function renderSaison() {
   $app.innerHTML = `
     <div class="toolbar"><div>
       <h2 class="section-title" style="margin:0">${esc(saison?.nom || 'Saison')}</h2>
-      <span class="muted">${nights.length} soirée${nights.length > 1 ? 's' : ''} depuis le ${esc(new Date(nights[0].date + 'T12:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' }))}</span>
+      <span class="muted">${saison?.debut ? `Lancée le ${esc(new Date(saison.debut + 'T12:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' }))} · ` : ''}${nights.length} soirée${nights.length > 1 ? 's' : ''} suivie${nights.length > 1 ? 's' : ''} depuis le ${esc(new Date(nights[0].date + 'T12:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' }))}</span>
     </div></div>
     <div class="me-grid">
       ${mvp ? `<div class="card mvp"><h3>Joueur du mois<small style="text-transform:capitalize">${esc(monthName)}</small></h3>

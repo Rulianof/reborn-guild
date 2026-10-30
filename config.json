@@ -26,7 +26,7 @@
   "_wcl": "Warcraft Logs : difficulté 3 = normal, 4 = héroïque, 5 = mythique. partGuildeMin : part minimale de membres de la guilde pour garder un combat. shameOptOut : persos exclus du Hall of Shame",
   "wcl": { "guildName": "Rebõrn", "semaines": 4, "difficulty": 4, "zoneIds": [], "partGuildeMin": 0.5, "shameOptOut": [] },
   "_saison": "Classement de saison : date de début (AAAA-MM-JJ) et nom. Sans date, la saison commence à la première soirée connue",
-  "saison": { "nom": "Midnight · Saison 2", "debut": null },
+  "saison": { "nom": "Midnight · Saison 2", "debut": "2026-08-19" },
   "_roster": "Roster raid : persos présents à au moins minSoirees soirées Warcraft Logs (période wcl.semaines). inclus / exclus : noms à ajouter ou retirer à la main",
   "roster": { "minSoirees": 2, "inclus": [], "exclus": [] },
   "_coffre": "Seuils du coffre de la semaine : nombre de clés M+ et de boss de raid pour chaque emplacement",
