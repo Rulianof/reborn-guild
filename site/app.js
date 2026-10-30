@@ -884,7 +884,7 @@ function renderSaison() {
 
 // ---------- Évolution personnelle ----------
 function miniChart(points, { fmt = (v) => v, lowerIsBetter = false, max = null, min = null } = {}) {
-  const W = 320, H = 110, L = 34, R = 6, T = 10, B = 18;
+  const W = 320, H = 110, L = 44, R = 6, T = 10, B = 18;
   const vals = points.flatMap((p) => [p.v, p.m]).filter((v) => v != null);
   if (points.filter((p) => p.v != null).length < 2) return '<p class="small" style="margin:6px 0">Pas encore assez de soirées pour une courbe.</p>';
   const hi = max ?? (Math.max(...vals) * 1.1 || 1), lo = min != null ? Math.min(min, ...vals) : max != null ? 0 : Math.min(0, ...vals);
