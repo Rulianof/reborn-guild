@@ -183,6 +183,38 @@ table.bulletin td, table.bulletin th { white-space: normal; }
 table.bulletin td.num { white-space: nowrap; }
 table.bulletin th, table.bulletin td { padding: 6px 6px; }
 
+/* Succès */
+.badges { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+.badge { display: flex; gap: 10px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 12px; }
+.badge .b-icon { font-size: 26px; width: 40px; height: 40px; display: grid; place-items: center; border-radius: 50%; background: #ffffff0a; border: 2px solid var(--line); flex: none; }
+.badge .b-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.badge .b-bar { height: 4px; background: #ffffff10; border-radius: 99px; overflow: hidden; margin-top: 3px; }
+.badge .b-bar i { display: block; height: 100%; background: var(--gold-dim); }
+.badge.locked { opacity: .55; }
+.badge.locked .b-icon { filter: grayscale(1); }
+.badge.t-bronze .b-icon { border-color: #b07a45; }
+.badge.t-argent .b-icon { border-color: #c4ccd8; }
+.badge.t-or .b-icon { border-color: var(--gold); box-shadow: 0 0 12px #d9b45a55; }
+.badge.t-legende .b-icon { border-color: #ff8000; box-shadow: 0 0 14px #ff800077; }
+.badge.fun b { color: #c9a0ff; }
+.holder { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 13px; margin: 2px 0; background: #ffffff0d; border: 1px solid var(--line); }
+.holder.t-argent { border-color: #c4ccd8; }
+.holder.t-or { border-color: var(--gold); color: var(--gold); }
+.holder.t-legende { border-color: #ff8000; color: #ff8000; }
+.holder.t-bronze { border-color: #b07a45; }
+.card.mvp { border-color: var(--gold-dim); background: radial-gradient(400px 120px at 0% 0%, #3a2c1066, transparent), var(--panel); }
+/* Évolution */
+.evo-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.chart.mini .line { opacity: 1; }
+.chart .line-med { fill: none; stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 4 4; }
+.chart.mini .axis { font-size: 11px; }
+.trend { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
+/* Mécaniques */
+.tabs a.tab-officer { opacity: .75; }
+table.meca tr.is-evit td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
+.meca-seg button { padding: 4px 9px; font-size: 13px; }
+pre.code { white-space: pre-wrap; margin: 0; }
+
 @media (max-width: 760px) {
   .brand h1 { font-size: 34px; }
   .profile { grid-template-columns: 1fr; }

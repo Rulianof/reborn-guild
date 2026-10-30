@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { ROOT, config, env } from './common.mjs';
 import { currentRaids, guildProgression, characterData } from './raiderio.mjs';
 import { syncWcl } from './wcl.mjs';
+import { updateHistory } from './history.mjs';
 
 const BLIZZARD_CLIENT_ID = env('BLIZZARD_CLIENT_ID');
 const BLIZZARD_CLIENT_SECRET = env('BLIZZARD_CLIENT_SECRET');
@@ -334,6 +335,8 @@ async function main() {
   writeFileSync(join(ROOT, 'site/data/raids.json'), JSON.stringify({
     generatedAt: new Date().toISOString(), status: wcl.status, nights: wcl.nights || [],
   }));
+  // Historique long (saison, succès, évolution) : à part, il grossit doucement au fil des semaines.
+  writeFileSync(join(ROOT, 'site/data/history.json'), JSON.stringify(updateHistory(wcl.nights, characters)));
 
   const accounts = groupAccounts(roster.members, summaries, petPrints, characters);
   console.log(`${accounts} comptes détectés pour ${characters.length} persos.`);
@@ -351,7 +354,7 @@ async function main() {
   const data = {
     generatedAt: new Date().toISOString(),
     guild: { name: roster.guild.name, realm: roster.guild.realm.name, faction: roster.guild.faction?.name, memberCount: roster.members.length },
-    config: { niveauMin: config.niveauMin, joursInactif: config.joursInactif, rangs: config.rangs, semainesWcl: config.wcl.semaines },
+    config: { niveauMin: config.niveauMin, joursInactif: config.joursInactif, rangs: config.rangs, semainesWcl: config.wcl.semaines, mecaniques: config.wcl.mecaniques || {}, saison: config.saison || null },
     raids,
     progression,
     wclStatus: wcl.status,

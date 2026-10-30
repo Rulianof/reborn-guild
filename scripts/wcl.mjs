@@ -383,7 +383,7 @@ export async function syncWcl(characters, guildNames) {
   for (const dir of [CACHE, RAW]) {
     for (const f of readdirSync(dir)) {
       const path = join(dir, f);
-      if (f.endsWith('.gz') || (f.endsWith('.json') && f !== 'parses.json')) {
+      if (f.endsWith('.gz') || (f.endsWith('.json') && f !== 'parses.json' && f !== 'history.json')) {
         if (Date.now() - statSync(path).mtimeMs > (config.wcl.semaines + 2) * 7 * DAY) unlinkSync(path);
       }
     }

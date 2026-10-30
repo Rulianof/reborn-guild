@@ -28,20 +28,27 @@ const FENETRE_MORT = 20000; // ms avant la mort où un défensif ou un soin « c
 // Une capacité est « probablement évitable » sur un boss quand les dégâts qu'elle inflige sont très
 // inégaux : les 10 % les plus touchés en prennent au moins 3× plus que le joueur médian (par pull),
 // alors que des dégâts de raid inévitables se répartissent à peu près pareil sur tout le monde.
-// Exclus : mêlée, capacités qui visent surtout les tanks, et celles qui pèsent trop peu.
-// config.wcl.mecaniques force le classement : { "Nom": "evitable" | "inevitable" }.
-function classify(entry, perPull, ctx) {
-  const forced = config.wcl.mecaniques?.[entry.name];
-  if (forced) return forced === 'evitable';
-  if (ctx.pulls < 2 || ctx.present < 8 || entry.name === 'Melee') return false;
+// Exclus : mêlée, capacités lancées par des joueurs (Burning Rush, Refraction…), celles qui visent
+// surtout les tanks, et celles qui pèsent trop peu.
+// config.wcl.mecaniques force le classement : { "Nom": "evitable" | "inevitable" } (page Mécaniques).
+const ENNEMI = new Set(['Boss', 'NPC']);
+function stats(entry, perPull, ctx) {
   const total = entry.targets.reduce((s, t) => s + (ctx.presentSet.has(t.name) ? t.total : 0), 0);
-  if (!total || total < ctx.encTotal * 0.01) return false;
   const tanks = entry.targets.filter((t) => ctx.presentSet.has(t.name) && ctx.roleOf(t.name) === 'tanks').reduce((s, t) => s + t.total, 0);
-  if (tanks / total >= 0.5) return false;
   const values = [...perPull.values()].sort((x, y) => x - y);
   const med = values[Math.floor(values.length / 2)];
   const p90 = values[Math.floor(values.length * 0.9)];
-  return p90 > 0 && (med === 0 || p90 / med >= 3);
+  const src = entry.sources.some((t) => ENNEMI.has(t)) ? 'ennemi' : entry.sources.some(Boolean) ? 'joueur' : 'inconnu';
+  return { total, tankShare: total ? tanks / total : 0, med, p90, ratio: med > 0 ? p90 / med : p90 > 0 ? null : 0, src };
+}
+function autoClassify(entry, st, ctx) {
+  if (ctx.pulls < 2 || ctx.present < 8 || entry.name === 'Melee' || st.src !== 'ennemi') return false;
+  if (!st.total || st.total < ctx.encTotal * 0.01 || st.tankShare >= 0.5) return false;
+  return st.p90 > 0 && (st.med === 0 || st.p90 / st.med >= 3);
+}
+function classify(entry, st, ctx) {
+  const forced = config.wcl.mecaniques?.[entry.name];
+  return forced ? forced === 'evitable' : autoClassify(entry, st, ctx);
 }
 
 const median = (a) => {
@@ -99,24 +106,29 @@ export function analyse(raw, { fights, fightPlayers, deaths, roleOf, players }) 
     // Une même capacité peut apparaître plusieurs fois (coup direct, dégâts sur la durée…) : on fusionne par nom.
     const merged = new Map();
     for (const e of extra.taken?.[enc] || []) {
-      if (!merged.has(e.name)) merged.set(e.name, { name: e.name, targets: new Map() });
+      if (!merged.has(e.name)) merged.set(e.name, { name: e.name, targets: new Map(), sources: [] });
       const m = merged.get(e.name);
+      m.sources.push(e.actorType || '');
       // Côté joueur, les parties d'une même capacité s'additionnent ; entre doublons du boss, la liste est la même.
       const sums = new Map();
       for (const t of e.targets) sums.set(t.name, (sums.get(t.name) || 0) + t.total);
       for (const [n, v] of sums) m.targets.set(n, Math.max(m.targets.get(n) || 0, v));
     }
-    const taken = [...merged.values()].map((m) => ({ name: m.name, targets: [...m.targets].map(([name, total]) => ({ name, total })) }));
+    const taken = [...merged.values()].map((m) => ({ name: m.name, sources: m.sources, targets: [...m.targets].map(([name, total]) => ({ name, total })) }));
     const encTotal = taken.reduce((s, e) => s + e.targets.reduce((x, t) => x + (presentSet.has(t.name) ? t.total : 0), 0), 0);
     const ctx = { pulls: fs.length, present: presentSet.size, presentSet, encTotal, roleOf };
     const avoidable = [];
+    const candidates = []; // pour la page Mécaniques : tout ce qui pèse un peu, avec le verdict automatique
     for (const e of taken) {
       const perPull = new Map([...presentSet].map((n) => [n, 0]));
       for (const t of e.targets) if (presentSet.has(t.name)) perPull.set(t.name, t.total / Math.max(1, pullsOf.get(t.name)));
-      if (!classify(e, perPull, ctx)) continue;
-      const values = [...perPull.values()].sort((x, y) => x - y);
-      const med = values[Math.floor(values.length / 2)];
-      avoidable.push({ name: e.name, total: Math.round(e.targets.reduce((s, t) => s + (presentSet.has(t.name) ? t.total : 0), 0)), medianPerPull: Math.round(med) });
+      const st = stats(e, perPull, ctx);
+      if (e.name !== 'Melee' && st.total >= ctx.encTotal * 0.005) {
+        candidates.push({ name: e.name, src: st.src, total: Math.round(st.total), ratio: st.ratio == null ? null : Math.round(st.ratio * 10) / 10, tanks: Math.round(st.tankShare * 100), auto: autoClassify(e, st, ctx) });
+      }
+      if (!classify(e, st, ctx)) continue;
+      const med = st.med;
+      avoidable.push({ name: e.name, total: Math.round(st.total), medianPerPull: Math.round(med) });
       for (const [n, v] of perPull) {
         const p = P(n);
         p.avoidable += v * pullsOf.get(n);
@@ -133,6 +145,7 @@ export function analyse(raw, { fights, fightPlayers, deaths, roleOf, players }) 
       pulls: fs.map((f) => ({ kill: !!f.kill, pct: extra.fights?.[f.id]?.pct ?? f.fightPercentage, phase: extra.fights?.[f.id]?.phase ?? null, dur: f.endTime - f.startTime })),
       killers: Object.entries(killers).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([name, count]) => ({ name, count })),
       avoidable: avoidable.sort((a, b) => b.total - a.total).slice(0, 8),
+      candidates: candidates.sort((a, b) => b.total - a.total).slice(0, 20),
     });
   }
 

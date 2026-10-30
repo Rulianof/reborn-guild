@@ -414,7 +414,7 @@ function renderBoss(id) {
       <div class="card"><h3>Où on wipe ${help('phase')}</h3>${wipes.length ? `<ul>${Object.entries(phases).sort().map(([ph, c]) => `<li><span>Phase ${esc(ph)}</span><b>${c} wipe${c > 1 ? 's' : ''}</b></li>`).join('')}</ul>` : '<p class="muted" style="margin:0">Aucun wipe.</p>'}</div>
       <div class="card"><h3>Ce qui nous tue ici</h3>${killers.length ? `<ul>${killers.map(([k, c]) => `<li><span>${esc(k)}</span><b>${c} mort${c > 1 ? 's' : ''}</b></li>`).join('')}</ul>` : '<p class="muted" style="margin:0">Personne n’est mort.</p>'}</div>
       <div class="card"><h3>Dégâts probablement évitables ${help('evitable')}</h3>${avoid.length ? `<ul>${avoid.map(([k, v]) => `<li><span>${esc(k)}</span><b>${fmtNum(v)}</b></li>`).join('')}</ul>
-        <p class="small" style="margin:8px 0 0">Détection automatique, à confirmer par un officier (config.json → wcl.mecaniques).</p>` : '<p class="muted" style="margin:0">Rien de flagrant détecté.</p>'}</div>
+        <p class="small" style="margin:8px 0 0">Détection automatique, à confirmer par un officier sur la page <a href="#/mecaniques">Mécaniques</a>.</p>` : '<p class="muted" style="margin:0">Rien de flagrant détecté.</p>'}</div>
     </div>`;
 }
 
@@ -586,7 +586,9 @@ function renderMoi() {
         <td>${x.vault ? vaultPips(x.vault.mplus.slots, (l) => `+${l}`) : '—'}</td>
         <td>${x.vault ? vaultPips(x.vault.raid.slots, (d) => DIFF_LABEL[d]) : '—'}</td>
         <td>${statusPill(x)}</td></tr>`).join('')}</tbody>
-    </table></div>` : ''}`;
+    </table></div>` : ''}
+    ${evolutionSection(c)}
+    ${badgesSection(c)}`;
   $app.querySelector('#change').onclick = () => { setMe(null); renderPicker(); };
 }
 
@@ -687,6 +689,7 @@ function renderPerso(realm, name) {
         ${c.wcl?.parses ? `<div class="section-title">Warcraft Logs</div>
         <p>Parse moyen ${parseCell(c.wcl.parses.best)} <span class="small">${c.wcl.parses.metric === 'hps' ? 'HPS' : 'DPS'}</span> · médian ${parseCell(c.wcl.parses.median)}${c.wcl.attendance ? ` · ${c.wcl.attendance.nights} soirée${c.wcl.attendance.nights > 1 ? 's' : ''} de raid loggée${c.wcl.attendance.nights > 1 ? 's' : ''}` : ''}</p>
         <div class="runs">${c.wcl.parses.bosses.map((b) => `<span class="run">${parseCell(b.best)} ${esc(b.name)}</span>`).join('')}</div>` : ''}
+        ${badgesSection(c)}
 
         ${c.alts?.length ? `<div class="section-title">${c.isMain ? 'Rerolls' : `Compte de ${esc(c.main)}`}</div>
         <p>${[...c.alts].sort((a, b) => (findChar(b.name, b.realm)?.ilvl || 0) - (findChar(a.name, a.realm)?.ilvl || 0) || b.level - a.level).map((a) => {
@@ -723,6 +726,298 @@ function renderPerso(realm, name) {
   window.$WowheadPower?.refreshLinks?.();
 }
 
+// ---------- Historique : saison, succès, évolution ----------
+const histNights = () => state.history?.nights || [];
+// Le compte d'un perso (main) : les points d'un reroll vont à son main.
+function accountOf(name) {
+  const c = findChar(name);
+  if (!c) return null;
+  return c.isMain === false ? findChar(c.main) || c : c;
+}
+const presentIn = (p) => p && !p.guest && (p.pulls || 0) >= 3;
+
+// Points de saison d'un joueur sur une soirée.
+function nightPoints(p, n) {
+  if (!presentIn(p)) return 0;
+  let pts = 10 + 2 * (p.kills || 0) + Math.round((p.avgParse || 0) / 10);
+  for (const f of n.fame) pts += f.list ? (f.list.includes(p.name) ? 3 : 0) : f.name === p.name ? 5 : 0;
+  return pts;
+}
+
+function seasonNights() {
+  const debut = state.data.config.saison?.debut;
+  return histNights().filter((n) => !debut || n.date >= debut);
+}
+
+function seasonTable(nights) {
+  const acc = new Map();
+  for (const n of nights) for (const p of n.players) {
+    if (!presentIn(p)) continue;
+    const c = accountOf(p.name);
+    const key = c ? favId(c) : p.name;
+    const a = acc.get(key) || { c, name: c?.name || p.name, pts: 0, nights: 0, kills: 0, fame: 0, shame: 0, best: null };
+    a.pts += nightPoints(p, n);
+    a.nights++;
+    a.kills += p.kills || 0;
+    a.fame += n.fame.filter((f) => !f.list && f.name === p.name).length;
+    a.shame += n.shame.filter((f) => f.name === p.name).length;
+    if (p.bestParse != null) a.best = Math.max(a.best ?? 0, p.bestParse);
+    acc.set(key, a);
+  }
+  return [...acc.values()].sort((a, b) => b.pts - a.pts || b.nights - a.nights);
+}
+
+// Succès : chaque succès a des paliers ; la date est celle de la soirée où le palier est atteint.
+const SUCCES = [
+  { id: 'presence', icon: '📅', title: 'Fidèle au poste', desc: 'soirées de raid', tiers: [4, 8, 16, 32], mode: 'sum', val: (p) => (presentIn(p) ? 1 : 0) },
+  { id: 'kills', icon: '🐉', title: 'Tueur de boss', desc: 'boss tués', tiers: [5, 15, 30, 60], mode: 'sum', val: (p) => p.kills || 0 },
+  { id: 'kicks', icon: '🦶', title: 'Roi du kick', desc: 'interrupts', tiers: [25, 100, 250, 500], mode: 'sum', val: (p) => p.interrupts || 0 },
+  { id: 'dispels', icon: '✨', title: 'Purificateur', desc: 'dispels', tiers: [25, 100, 250, 500], mode: 'sum', val: (p) => p.dispels || 0 },
+  { id: 'immortel', icon: '🛡️', title: 'Immortel', desc: 'soirées entières sans mourir', tiers: [1, 3, 6, 10], mode: 'sum', val: (p) => (presentIn(p) && p.pulls >= 5 && !p.deaths ? 1 : 0) },
+  { id: 'serie', icon: '🔥', title: 'Increvable', desc: 'soirées d’affilée sans mourir', tiers: [2, 3, 5], mode: 'streak', val: (p) => (presentIn(p) && !p.deaths ? 1 : 0) },
+  { id: 'parse', icon: '🎯', title: 'Belle perf', desc: 'meilleur parse', tiers: [50, 75, 95, 99], names: ['bleu', 'violet', 'orange', 'rose'], mode: 'max', val: (p) => p.bestParse || 0 },
+  { id: 'mvp', icon: '🏆', title: 'MVP', desc: 'fois meilleur parse de la soirée', tiers: [1, 3, 6], mode: 'sum', val: (p, n) => (n.fame.some((f) => f.id === 'parse' && f.name === p.name) ? 1 : 0) },
+  { id: 'hall', icon: '🌟', title: 'Star du Hall', desc: 'entrées au Hall of Fame', tiers: [3, 10, 25], mode: 'sum', val: (p, n) => n.fame.filter((f) => !f.list && f.name === p.name).length },
+  { id: 'abc', icon: '⏱️', title: 'Always Be Casting', desc: '% d’activité sur une soirée', tiers: [92, 95, 98], mode: 'max', val: (p) => (presentIn(p) ? p.activity || 0 : 0) },
+  { id: 'pret', icon: '🍗', title: 'Toujours prêt', desc: 'soirées sans oublier flacon ni nourriture', tiers: [2, 5, 10], mode: 'sum', val: (p) => (presentIn(p) && p.checked && !p.noFlask && !p.noFood ? 1 : 0) },
+  { id: 'premier', icon: '🥇', title: 'Première fois', desc: 'kills de progression (premier kill de la guilde)', tiers: [1, 3, 6], mode: 'sum', val: (p, n, ctx) => (presentIn(p) && p.kills ? ctx.firsts[n.date] || 0 : 0) },
+  { id: 'sol', icon: '💀', title: 'Abonné au sol', desc: 'morts au total', tiers: [10, 25, 50, 100], mode: 'sum', fun: true, val: (p) => p.deaths || 0 },
+  { id: 'eclaireur', icon: '🪦', title: 'Éclaireur', desc: 'fois premier à tomber', tiers: [3, 10, 25], mode: 'sum', fun: true, val: (p) => p.firstDeaths || 0 },
+];
+const TIER = ['bronze', 'argent', 'or', 'legende'];
+
+// Kills de progression : premier kill d'un boss par la guilde, après au moins 3 wipes dessus
+// (le soir même ou avant). Un boss déjà tombé avant le début du suivi ne compte pas.
+function firstKills() {
+  const seen = new Set(), wiped = {}, firsts = {};
+  for (const n of histNights()) {
+    for (const b of n.kills) {
+      if (!seen.has(b) && (wiped[b] || 0) + (n.wipes?.[b] || 0) >= 3) firsts[n.date] = (firsts[n.date] || 0) + 1;
+      seen.add(b);
+    }
+    for (const [b, w] of Object.entries(n.wipes || {})) wiped[b] = (wiped[b] || 0) + w;
+  }
+  return firsts;
+}
+
+function achievements(name) {
+  const ctx = { firsts: firstKills() };
+  const mine = histNights().map((n) => ({ n, p: n.players.find((x) => x.name === name) })).filter((x) => x.p && !x.p.guest);
+  return SUCCES.map((s) => {
+    let cur = 0, run = 0;
+    const got = [];
+    for (const { n, p } of mine) {
+      const v = s.val(p, n, ctx);
+      if (s.mode === 'sum') cur += v;
+      else if (s.mode === 'max') cur = Math.max(cur, v);
+      else { run = v ? run + 1 : 0; cur = Math.max(cur, run); }
+      while (got.length < s.tiers.length && cur >= s.tiers[got.length]) got.push(n.date);
+    }
+    return { ...s, value: Math.round(cur), level: got.length, dates: got, next: s.tiers[got.length] ?? null };
+  });
+}
+
+function badge(a, { small = false } = {}) {
+  const lvl = a.level;
+  const tierName = a.names ? a.names[lvl - 1] : ['I', 'II', 'III', 'IV'][lvl - 1];
+  const tip = `${a.title}${lvl ? ` ${tierName}` : ''} : ${a.value} ${a.desc}${a.next != null ? ` · prochain palier : ${a.next}` : ' · palier max !'}${lvl ? ` · obtenu le ${new Date(a.dates[lvl - 1] + 'T12:00').toLocaleDateString('fr-FR')}` : ''}`;
+  return `<span class="badge ${lvl ? `t-${TIER[Math.min(lvl, 4) - 1]}` : 'locked'} ${a.fun ? 'fun' : ''} ${small ? 'sm' : ''}" title="${esc(tip)}">
+    <span class="b-icon">${a.icon}</span>${small ? '' : `<span class="b-txt"><b>${esc(a.title)}${lvl ? ` ${esc(tierName)}` : ''}</b>
+    <span class="small">${a.value} ${esc(a.desc)}${a.next != null ? ` · <i>${a.next}</i> pour le suivant` : ' · max'}</span>
+    ${a.next != null ? `<span class="b-bar"><i style="width:${Math.min(100, (100 * a.value) / a.next)}%"></i></span>` : ''}</span>`}</span>`;
+}
+function badgesSection(c) {
+  if (!histNights().length) return '';
+  const all = achievements(c.name);
+  const got = all.filter((a) => a.level);
+  return `<div class="section-title">Succès <span class="small">${got.length}/${all.length}</span></div>
+    <div class="badges">${[...got, ...all.filter((a) => !a.level)].map((a) => badge(a)).join('')}</div>`;
+}
+
+// ---------- Saison ----------
+function renderSaison() {
+  const nights = seasonNights();
+  if (!nights.length) { $app.innerHTML = wclPlaceholder(); return; }
+  const table = seasonTable(nights);
+  const lastMonth = nights.at(-1).date.slice(0, 7);
+  const month = seasonTable(nights.filter((n) => n.date.startsWith(lastMonth)));
+  const mvp = month[0];
+  const monthName = new Date(lastMonth + '-15').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+  const honte = [...table].filter((a) => a.shame).sort((a, b) => b.shame - a.shame).slice(0, 5);
+  const saison = state.data.config.saison;
+  const who = (a) => (a.c ? `<a href="${charUrl(a.c)}" style="color:${color(a.c)};text-decoration:none"><b>${esc(a.name)}</b></a>` : `<b>${esc(a.name)}</b>`);
+  const succ = new Map(table.map((a) => [a.name, achievements(a.name).reduce((s, x) => s + x.level, 0)]));
+
+  $app.innerHTML = `
+    <div class="toolbar"><div>
+      <h2 class="section-title" style="margin:0">${esc(saison?.nom || 'Saison')}</h2>
+      <span class="muted">${nights.length} soirée${nights.length > 1 ? 's' : ''} depuis le ${esc(new Date(nights[0].date + 'T12:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' }))}</span>
+    </div></div>
+    <div class="me-grid">
+      ${mvp ? `<div class="card mvp"><h3>Joueur du mois<small style="text-transform:capitalize">${esc(monthName)}</small></h3>
+        <div class="me-head" style="margin:0">${mvp.c?.avatar ? `<img src="${esc(mvp.c.avatar)}" alt="">` : ''}
+        <div><div style="font-size:22px">👑 ${who(mvp)}</div><div class="muted">${mvp.pts} points · ${mvp.nights} soirée${mvp.nights > 1 ? 's' : ''} · ${mvp.fame} au Hall of Fame</div></div></div>
+        ${month[1] ? `<p class="small" style="margin:10px 0 0">Suivi de ${who(month[1])} (${month[1].pts})${month[2] ? ` et ${who(month[2])} (${month[2].pts})` : ''}</p>` : ''}</div>` : ''}
+      <div class="card"><h3>Barème</h3><ul class="plain small">
+        <li>+10 par soirée (au moins 3 pulls)</li><li>+2 par boss tué</li><li>+5 par entrée au Hall of Fame, +3 Immortel</li><li>+1 par tranche de 10 de parse moyen</li></ul>
+        <p class="small" style="margin:8px 0 0">Les rerolls comptent pour leur main. Le Hall of Shame ne retire rien… mais il a sa coupe.</p></div>
+      ${honte.length ? `<div class="card"><h3>🙈 Coupe de la honte</h3><ul>${honte.map((a) => `<li><span>${who(a)}</span><b>${a.shame} entrée${a.shame > 1 ? 's' : ''}</b></li>`).join('')}</ul></div>` : ''}
+    </div>
+    <div class="section-title">Classement de la saison</div>
+    <div class="table-wrap"><table class="compact">
+      <thead><tr><th>#</th><th>Joueur</th><th>Points</th><th>Soirées</th><th>Boss tués</th><th>Hall of Fame</th><th>Meilleur parse ${help('parse')}</th><th>Succès</th></tr></thead>
+      <tbody class="rows">${table.map((a, i) => `<tr ${a.c ? `data-href="${charUrl(a.c)}"` : ''}>
+        <td class="num">${['🥇', '🥈', '🥉'][i] || `<span class="muted">${i + 1}</span>`}</td>
+        <td><div class="char">${a.c ? favButton(a.c) : ''}${a.c?.avatar ? `<img src="${esc(a.c.avatar)}" alt="" loading="lazy">` : ''}<b style="color:${a.c ? color(a.c) : 'inherit'}">${esc(a.name)}</b>${a.c?.raider ? ' <span class="pill raid">⚔</span>' : ''}</div></td>
+        <td class="num"><b>${a.pts}</b></td><td class="num">${a.nights}</td><td class="num">${a.kills}</td><td class="num">${a.fame || ''}</td>
+        <td class="num">${parseCell(a.best)}</td><td class="num">${succ.get(a.name) || ''}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>
+    <div class="section-title">Succès de la guilde</div>
+    <div class="grid">${SUCCES.map((s) => {
+      const holders = table.map((a) => ({ a, x: achievements(a.name).find((y) => y.id === s.id) })).filter(({ x }) => x.level).sort((p, q) => q.x.value - p.x.value);
+      return `<div class="card"><h3>${s.icon} ${esc(s.title)}<small>${holders.length} joueur${holders.length > 1 ? 's' : ''}</small></h3>
+        <p class="small" style="margin:0 0 8px">Paliers : ${s.tiers.join(' · ')} ${esc(s.desc)}</p>
+        <div>${holders.slice(0, 8).map(({ a, x }) => `<span class="holder t-${TIER[Math.min(x.level, 4) - 1]}" title="${x.value} ${esc(s.desc)}">${esc(a.name)}</span>`).join(' ') || '<span class="muted">Personne pour l’instant…</span>'}${holders.length > 8 ? ` <span class="small">+${holders.length - 8}</span>` : ''}</div></div>`;
+    }).join('')}</div>`;
+}
+
+// ---------- Évolution personnelle ----------
+function miniChart(points, { fmt = (v) => v, lowerIsBetter = false, max = null, min = null } = {}) {
+  const W = 320, H = 110, L = 34, R = 6, T = 10, B = 18;
+  const vals = points.flatMap((p) => [p.v, p.m]).filter((v) => v != null);
+  if (points.filter((p) => p.v != null).length < 2) return '<p class="small" style="margin:6px 0">Pas encore assez de soirées pour une courbe.</p>';
+  const hi = max ?? (Math.max(...vals) * 1.1 || 1), lo = min != null ? Math.min(min, ...vals) : max != null ? 0 : Math.min(0, ...vals);
+  const x = (i) => L + (points.length === 1 ? (W - L - R) / 2 : (i * (W - L - R)) / (points.length - 1));
+  const y = (v) => T + (1 - (v - lo) / (hi - lo || 1)) * (H - T - B);
+  const line = (k) => points.map((p, i) => (p[k] == null ? null : `${x(i).toFixed(1)},${y(p[k]).toFixed(1)}`)).filter(Boolean).join(' ');
+  const dots = points.map((p, i) => (p.v == null ? '' : `<circle cx="${x(i)}" cy="${y(p.v)}" r="3.5" class="dot"><title>${esc(p.label)} : ${esc(fmt(p.v))}${p.m != null ? ` (médiane ${esc(fmt(p.m))})` : ''}</title></circle>`)).join('');
+  const labels = [0, points.length - 1].map((i) => `<text x="${x(i)}" y="${H - 4}" text-anchor="${i ? 'end' : 'start'}" class="axis">${esc(points[i].label)}</text>`).join('')
+    + [hi, lo].map((v) => `<text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" class="axis">${esc(fmt(v))}</text><line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="grid-line"/>`).join('');
+  // Tendance : moyenne des 2 dernières soirées contre les 2 premières.
+  const vs = points.map((p) => p.v).filter((v) => v != null);
+  const avg = (a) => a.reduce((s, v) => s + v, 0) / a.length;
+  const k = Math.min(2, Math.floor(vs.length / 2));
+  const d = avg(vs.slice(-k)) - avg(vs.slice(0, k));
+  const rel = Math.abs(d) / (Math.abs(avg(vs.slice(0, k))) || 1);
+  const better = lowerIsBetter ? d < 0 : d > 0;
+  const trend = rel < 0.05 ? '<span class="pill">→ stable</span>' : better ? '<span class="pill ok">↗ en progrès</span>' : '<span class="pill warn">↘ en baisse</span>';
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart mini" role="img">
+    ${points.some((p) => p.m != null) ? `<polyline points="${line('m')}" class="line-med"/>` : ''}<polyline points="${line('v')}" class="line"/>${dots}${labels}</svg>
+    <div class="trend">${trend}<span class="small">dernière : <b>${esc(fmt(vs.at(-1)))}</b></span></div>`;
+}
+
+function evolutionSection(c) {
+  const nights = histNights();
+  const rows = nights.map((n) => ({ n, p: n.players.find((x) => x.name === c.name) })).filter((x) => x.p && !x.p.guest);
+  const ilvl = state.history?.ilvl?.[favId(c)] || [];
+  if (!rows.length && ilvl.length < 2) return '';
+  const lab = (d) => new Date(d + 'T12:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+  const med = (r, k) => r.n.medians?.[r.p.role]?.[k] ?? null;
+  const series = (k, mk = k) => rows.map((r) => ({ label: lab(r.n.date), v: r.p[k] ?? null, m: med(r, mk) }));
+  const perPull = (r) => (r.p.pulls ? Math.round((10 * (r.p.deaths || 0)) / r.p.pulls) / 10 : null);
+  const charts = [
+    ['Parse moyen', help('parse'), miniChart(series('avgParse'), { fmt: (v) => Math.round(v), max: 100 })],
+    ['Activité', help('activite'), miniChart(series('activity'), { fmt: (v) => `${Math.round(v)} %`, max: 100, min: 50 })],
+    ['Morts par pull', '', miniChart(rows.map((r) => ({ label: lab(r.n.date), v: perPull(r), m: null })), { fmt: (v) => v.toFixed(1), lowerIsBetter: true })],
+    ['Dégâts évitables / pull', help('evitable'), miniChart(series('avoidablePerPull'), { fmt: fmtNum, lowerIsBetter: true })],
+    ['ilvl', '', ilvl.length >= 2 ? miniChart(ilvl.map(([d, v]) => ({ label: lab(d), v, m: null })), { fmt: (v) => v }) : `<p class="small" style="margin:6px 0">${ilvl[0] ? `${ilvl[0][1]} aujourd’hui. ` : ''}La courbe se remplit à chaque synchro où ton ilvl change.</p>`],
+  ];
+  return `<div class="section-title">Mon évolution <span class="small">${rows.length} soirée${rows.length > 1 ? 's' : ''} · trait plein = toi, pointillés = médiane de ton rôle</span></div>
+    <div class="evo-grid">${charts.map(([t, h, ch]) => `<div class="card"><h3>${t} ${h}</h3>${ch}</div>`).join('')}</div>`;
+}
+
+// ---------- Mécaniques (outil pour les officiers) ----------
+const MECA_KEY = 'reborn.mecaniques';
+const mecaDraft = (() => { try { return JSON.parse(localStorage.getItem(MECA_KEY) || 'null'); } catch { return null; } })();
+const SRC_LABEL = { ennemi: 'boss / add', joueur: 'sort de joueur', inconnu: 'inconnue' };
+
+function renderMecaniques() {
+  const nights = state.raids?.nights || [];
+  if (!nights.length) { $app.innerHTML = wclPlaceholder(); return; }
+  const saved = state.data.config.mecaniques || {};
+  const draft = (state.meca ??= { ...saved, ...(mecaDraft || {}) });
+  state.mecaJoueurs ??= false;
+  // Capacités par boss, toutes soirées confondues.
+  const bosses = new Map();
+  for (const n of nights) for (const e of n.encounters || []) {
+    const b = bosses.get(e.id) || { id: e.id, name: e.name, pulls: 0, abil: new Map() };
+    b.pulls += e.pulls.length;
+    for (const a of e.candidates || []) {
+      const x = b.abil.get(a.name) || { name: a.name, src: a.src, total: 0, ratio: null, auto: 0, seen: 0, tanks: 0 };
+      x.total += a.total;
+      x.seen++;
+      x.auto += a.auto ? 1 : 0;
+      if (a.ratio != null) x.ratio = Math.max(x.ratio ?? 0, a.ratio);
+      else if (x.ratio == null) x.ratio = a.ratio;
+      x.tanks = Math.max(x.tanks, a.tanks);
+      if (a.src === 'ennemi') x.src = 'ennemi';
+      b.abil.set(a.name, x);
+    }
+    bosses.set(e.id, b);
+  }
+  const verdict = (name, x) => (draft[name] ? draft[name] === 'evitable' : x.auto > 0);
+  const changed = Object.keys({ ...saved, ...draft }).filter((k) => (saved[k] || '') !== (draft[k] || '')).length;
+  const snippet = JSON.stringify(Object.fromEntries(Object.entries(draft).filter(([, v]) => v).sort()), null, 2);
+
+  $app.innerHTML = `
+    <div class="toolbar"><div>
+      <h2 class="section-title" style="margin:0">Mécaniques des boss</h2>
+      <span class="muted">Outil pour les officiers : confirme ce qui est vraiment évitable, le coaching sera plus juste.</span>
+    </div><span style="flex:1"></span>
+      <label><input type="checkbox" id="meca-joueurs" ${state.mecaJoueurs ? 'checked' : ''}> Afficher les sorts de joueurs</label></div>
+    <div class="card summary"><h3>Comment ça marche</h3><ul class="plain small">
+      <li><b>Auto</b> : le site décide seul. Il marque « évitable » une capacité de boss dont certains joueurs prennent au moins 3× plus que le joueur médian (colonne <i>Inégalité</i>).</li>
+      <li><b>Évitable</b> : zones au sol, frontales, projectiles… Ceux qui en prennent trop auront un conseil.</li>
+      <li><b>Inévitable</b> : dégâts de raid, ou mécanique assignée (soak, cible désignée) : plus jamais comptée comme une erreur.</li>
+      <li>Le choix vaut pour la capacité sur tous les boss. Tes choix restent dans ce navigateur jusqu’à ce que tu copies le bloc en bas dans <code>config.json</code>.</li></ul></div>
+    ${[...bosses.values()].sort((a, b) => a.name.localeCompare(b.name)).map((b) => {
+      // Les plus suspectes d'abord : choix déjà faits, avis « évitable », puis par inégalité ; les capacités de tank à la fin.
+      const score = (x) => (draft[x.name] ? 3e6 : 0) + (x.auto ? 2e6 : 0) + (x.tanks >= 50 ? -1e6 : 0) + (x.ratio == null ? 1e3 : x.ratio);
+      const list = [...b.abil.values()].filter((x) => state.mecaJoueurs || x.src === 'ennemi' || draft[x.name]).sort((p, q) => score(q) - score(p) || q.total - p.total);
+      if (!list.length || b.pulls < 3) return '';
+      return `<div class="section-title">${esc(b.name)} <span class="small">${b.pulls} pulls · <a href="#/boss/${b.id}">voir le boss</a></span></div>
+      <div class="table-wrap"><table class="compact meca">
+        <thead><tr><th>Capacité</th><th>Source</th><th title="Dégâts subis par les joueurs de la guilde, toutes soirées">Dégâts</th><th title="Les 10 % les plus touchés / le joueur médian, par pull">Inégalité</th><th title="Part encaissée par les tanks">Tanks</th><th>Avis du site</th><th>Ton choix</th></tr></thead>
+        <tbody>${list.map((x) => {
+          const v = verdict(x.name, x);
+          const ch = draft[x.name] || '';
+          return `<tr class="${v ? 'is-evit' : ''}">
+            <td><a href="https://www.wowhead.com/fr/search?q=${encodeURIComponent(x.name)}" target="_blank" rel="noopener"><b>${esc(x.name)}</b></a></td>
+            <td class="small">${esc(SRC_LABEL[x.src] || x.src)}</td>
+            <td class="num">${fmtNum(x.total)}</td>
+            <td class="num">${x.ratio == null ? '<span title="Le joueur médian n’en prend pas du tout : seuls quelques joueurs sont touchés">∞</span>' : x.ratio ? `×${x.ratio}` : '—'}</td>
+            <td class="num">${x.tanks ? `${x.tanks} %` : ''}</td>
+            <td>${x.auto ? '<span class="pill warn">probablement évitable</span>' : '<span class="pill">inévitable</span>'}</td>
+            <td><span class="seg meca-seg" data-name="${esc(x.name)}">${[['', 'Auto'], ['evitable', 'Évitable'], ['inevitable', 'Inévitable']].map(([k, l]) => `<button data-v="${k}" class="${ch === k ? 'on' : ''}">${l}</button>`).join('')}</span></td>
+          </tr>`;
+        }).join('')}</tbody></table></div>`;
+    }).join('')}
+    <div class="section-title">À coller dans config.json ${changed ? `<span class="pill warn">${changed} changement${changed > 1 ? 's' : ''} non enregistré${changed > 1 ? 's' : ''}</span>` : '<span class="pill ok">à jour</span>'}</div>
+    <div class="card">
+      <p class="small" style="margin-top:0">Remplace le bloc <code>"mecaniques"</code> de <code>wcl</code> dans <code>config.json</code> (ou envoie-le à Rulian). Les conseils seront recalculés à la synchro suivante.</p>
+      <pre class="code" id="meca-json">"mecaniques": ${esc(snippet)}</pre>
+      <div class="links" style="margin-top:8px"><button class="btn gold" id="meca-copy">Copier</button><button class="btn" id="meca-reset">Revenir à la config actuelle</button></div>
+    </div>`;
+
+  const save = () => { try { localStorage.setItem(MECA_KEY, JSON.stringify(draft)); } catch { /* navigation privée */ } };
+  $app.querySelectorAll('.meca-seg button').forEach((btn) => btn.onclick = () => {
+    const name = btn.parentElement.dataset.name;
+    if (btn.dataset.v) draft[name] = btn.dataset.v; else delete draft[name];
+    save();
+    renderMecaniques();
+  });
+  $app.querySelector('#meca-joueurs').onchange = (e) => { state.mecaJoueurs = e.target.checked; renderMecaniques(); };
+  $app.querySelector('#meca-copy').onclick = async (e) => {
+    try { await navigator.clipboard.writeText(`"mecaniques": ${snippet}`); e.target.textContent = 'Copié ✓'; } catch { e.target.textContent = 'Copie impossible'; }
+  };
+  $app.querySelector('#meca-reset').onclick = () => {
+    state.meca = { ...saved };
+    try { localStorage.removeItem(MECA_KEY); } catch { /* idem */ }
+    renderMecaniques();
+  };
+}
+
 // Clic sur une ligne de tableau → fiche du perso.
 document.addEventListener('click', (e) => {
   const tr = e.target.closest('tbody.rows tr[data-href]');
@@ -745,6 +1040,8 @@ function route(opts = {}) {
   else if (tab === 'boss') renderBoss(parts[1]);
   else if (tab === 'lexique') renderLexique();
   else if (tab === 'metiers') renderMetiers();
+  else if (tab === 'saison') renderSaison();
+  else if (tab === 'mecaniques') renderMecaniques();
   else if (tab === 'perso') renderPerso(parts[1], parts[2]);
   else renderMembres();
 }
@@ -756,6 +1053,7 @@ fetch('data/guild.json', { cache: 'no-cache' })
     state.data = d;
     // Les soirées sont dans un fichier à part ; le site fonctionne sans.
     state.raids = await fetch('data/raids.json', { cache: 'no-cache' }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    state.history = await fetch('data/history.json', { cache: 'no-cache' }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
     renderKpis();
     route();
   })
